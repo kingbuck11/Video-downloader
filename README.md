@@ -13,12 +13,14 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 - Tested in a Linux sandbox: all 13 automated tests pass, including a real download start to finish, and the screens were checked in light and dark mode.
 - **Oct 30: setup no longer needs Homebrew.** Homebrew dropped Intel Macs, and the owner's Mac is a Mid 2015 Intel MacBook Pro on macOS Monterey 12.7.6. `start.command` now installs yt-dlp, ffmpeg (imageio-ffmpeg) and deno (the `deno` pip package) into the app's own `.venv`. Python comes from the python.org installer.
 - Setup only installs ready-made packages (never compiles), and skips optional yt-dlp extras that don't have a build for the installed Python yet. The owner has Python 3.15.2 from python.org.
-- **Runs on the owner's Mac** (Oct 30). Not yet tested there: the clipboard pop-up, Finder buttons and the folder picker.
+- **Oct 30: file size shown before downloading** (like the old RealPlayer). The pop-up looks the video up first and offers "Download (≈310 MB)" / "Choose Quality…" / "Ignore", noting the smallest option when it's much smaller. The preview's quality menu lists a size for each choice, and the download list shows "42% of 1.2 GB" with one progress bar covering video and audio.
+- **Runs on the owner's Mac** (Oct 30): clipboard pop-up, a real YouTube download, Show in Finder and the folder picker all confirmed working.
 
 ## Known issues and next steps
 
 - **Open: launching needs a Terminal window and a browser tab.** `start.command` opens Terminal, and closing that window stops the app. The owner wants this fixed, same as in their other local apps (like the Video Organizer). Likely fix: a double-clickable `.app` that runs in the background with a menu-bar icon (Open, Pause clipboard watching, Quit) and optional start at login, no Terminal window.
-- Setup confirmed on the Intel/Monterey Mac (Oct 30): the app opens. Still to check: the clipboard pop-up (macOS may ask permission the first time), a real YouTube download, Show in Finder, and the folder picker.
+- Still to check on the Mac: the new size display on real sites.
+- Sizes marked ≈ are estimates from the stream's bitrate (most streaming sites don't publish exact sizes); expect them to be within roughly 10–20%. Some sites give no bitrate, so the size shows as unknown. Playlists don't show sizes.
 - The bundled ffmpeg doesn't include ffprobe. Merging and audio-only downloads work without it; if a site needs ffprobe, yt-dlp will say so.
 - The pop-up is a plain macOS dialog and may open behind other windows. If that's annoying, consider a menu-bar icon or notification instead.
 - Changing "Downloads at once" to a lower number only takes effect after restarting the app.
@@ -33,6 +35,8 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 - **Python + Flask + plain HTML/JS, running in the browser**, same style as the owner's Video Organizer. No build step.
 - **Mac-friendly H.264 by default** so files play in QuickTime and Finder previews.
 - **Settings and history stored outside the repo** (`~/Library/Application Support/Video Downloader/`), so code updates never wipe them.
+- **Size comes from yt-dlp's own format choice** for each quality (same rules as the download, including Mac-friendly), so the number shown matches the file you'd get. Direct video files that don't list a size get a HEAD request to the server (nothing downloaded).
+- **The pop-up waits for the lookup** (a few seconds) so it can show the size, rather than asking instantly without one.
 - **No DRM circumvention.**
 - **No Homebrew.** It only supports Apple Silicon now. Everything installs with pip into `.venv`, which works on Intel and Apple Silicon and keeps the rest of the Mac untouched.
 - **Get the code as a ZIP from GitHub** rather than `git clone`, so no developer tools are needed on the Mac.

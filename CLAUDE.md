@@ -11,7 +11,8 @@ Local Mac app: a front end for yt-dlp. Python + Flask backend, plain HTML/CSS/JS
 
 ## Layout
 - `vdl/downloader.py`: `build_options()` maps settings to yt-dlp options; `DownloadManager` runs a worker queue with progress/cancel hooks.
-- `vdl/clipboard.py`: polls `pbpaste` each second; prompts only for URLs a dedicated (non-Generic) extractor matches, unless `prompt_all_links`. Native prompt is `osascript display dialog`.
+- `vdl/downloader.py` `estimate_options()`: per-quality size by re-running yt-dlp's `process_video_result` with each quality's format options on the fetched info (strip stale `requested_formats`/`format_id` first); falls back to tbr×duration, then a HEAD request.
+- `vdl/clipboard.py`: polls `pbpaste` each second; prompts only for URLs a dedicated (non-Generic) extractor matches, unless `prompt_all_links`. Looks the video up first (pending item states: looking/ready/error), then shows an `osascript display dialog` with title and size.
 - `vdl/server.py`: Flask routes. `static/app.js` polls `/api/state`.
 - External tools: ffmpeg (merging HD video+audio) and deno (YouTube's JS challenges). Both are pip-installed into `.venv` (`imageio-ffmpeg`, yt-dlp's `deno` extra); found there first, then PATH/Homebrew dirs.
 - Owner's Mac: Mid 2015 Intel MacBook Pro, macOS Monterey 12.7.6. Homebrew no longer supports Intel, so never rely on `brew`. Python comes from the python.org installer; yt-dlp needs Python 3.11+.
