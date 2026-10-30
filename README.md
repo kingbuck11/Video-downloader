@@ -12,6 +12,7 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 - **Version 1 built (Oct 29, 2026).** Clipboard watcher with Mac pop-up, paste/drag preview with quality choice, download queue (progress, cancel, retry, Show in Finder), history, settings, yt-dlp updater, and the `start.command` launcher.
 - Tested in a Linux sandbox: all 13 automated tests pass, including a real download start to finish, and the screens were checked in light and dark mode.
 - **Oct 30: setup no longer needs Homebrew.** Homebrew dropped Intel Macs, and the owner's Mac is a Mid 2015 Intel MacBook Pro on macOS Monterey 12.7.6. `start.command` now installs yt-dlp, ffmpeg (imageio-ffmpeg) and deno (the `deno` pip package) into the app's own `.venv`. Python comes from the python.org installer.
+- Setup only installs ready-made packages (never compiles), and skips optional yt-dlp extras that don't have a build for the installed Python yet. The owner has Python 3.15.2 from python.org.
 - **Not yet tested on the Mac:** the clipboard pop-up, Finder buttons, the folder picker, and `start.command` itself.
 
 ## Known issues and next steps

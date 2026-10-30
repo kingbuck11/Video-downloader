@@ -37,7 +37,24 @@ STAMP=".venv/.requirements-installed"
 if [ ! -f "$STAMP" ] || ! cmp -s requirements.txt "$STAMP"; then
   echo "Installing yt-dlp, ffmpeg, deno and Flask (this takes a few minutes the first time)…"
   .venv/bin/python -m pip install --quiet --upgrade pip
-  .venv/bin/python -m pip install --quiet --upgrade -r requirements.txt || pause_and_exit
+  # Ready-made packages only: never try to compile anything (that would need
+  # Apple's developer tools). If a brand-new Python lacks a ready-made build of
+  # an optional speed-up (brotli, websockets…), install everything else.
+  if ! .venv/bin/python -m pip install --quiet --upgrade --only-binary=:all: -r requirements.txt; then
+    echo "Some optional extras aren't available for this Python yet; installing the essentials…"
+    .venv/bin/python -m pip install --quiet --upgrade --only-binary=:all: \
+      "yt-dlp[deno]" imageio-ffmpeg "flask>=3.0" || pause_and_exit
+    # the rest of yt-dlp's recommended extras, one at a time, skipping any that can't install
+    for pkg in $(.venv/bin/python -c '
+import re, importlib.metadata as m
+for r in m.requires("yt-dlp") or []:
+    if "extra == \"default\"" in r:
+        spec = r.split(";")[0].strip().replace(" ", "")
+        if not re.match(r"brotlicffi", spec): print(spec)'); do
+      .venv/bin/python -m pip install --quiet --only-binary=:all: "$pkg" 2>/dev/null \
+        || echo "  (skipped optional $pkg)"
+    done
+  fi
   cp requirements.txt "$STAMP"
 fi
 
