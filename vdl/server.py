@@ -16,19 +16,20 @@ STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 API_HEADER = "X-Video-Downloader"
 
 
-def create_app(store=None, port=8737, start_watcher=True):
+def create_app(store=None, port=8737, start_watcher=True, show_window=None):
     app = Flask(__name__, static_folder=None)
     store = store or Store()
     manager = downloader.DownloadManager(store)
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     def open_app():
-        open_in_browser(port)
+        # the desktop window replaces this hook; without it, fall back to a browser tab
+        (app.config.get("show_window") or (lambda: open_in_browser(port)))()
 
     watcher = ClipboardWatcher(store, manager, open_app)
     if start_watcher:
         watcher.start()
-    app.config.update(store=store, manager=manager, watcher=watcher)
+    app.config.update(store=store, manager=manager, watcher=watcher, show_window=show_window)
     update_state = {"running": False, "output": "", "ok": None}
 
     @app.before_request
@@ -169,6 +170,12 @@ def create_app(store=None, port=8737, start_watcher=True):
 
         threading.Thread(target=run, daemon=True).start()
         return jsonify(update_state | {"running": True})
+
+    @app.post("/api/show")
+    def show():
+        """A second launch of the app asks the running one to come forward."""
+        open_app()
+        return jsonify(ok=True)
 
     @app.post("/api/quit")
     def quit_app():

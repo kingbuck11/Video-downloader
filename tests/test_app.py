@@ -221,3 +221,64 @@ def test_clipboard_looks_up_before_asking(store):
     item2 = w.consider("https://vimeo.com/1", background=False)
     w._look_up_and_ask(item2)
     assert item2["state"] == "error" and "private" in item2["error"].lower()
+
+
+# ------------------------------------------------------------------ Mac app
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _tree(base):
+    out = {}
+    for d, dirs, files in os.walk(base):
+        dirs[:] = [x for x in dirs if x != "__pycache__"]
+        for f in files:
+            if f.endswith(".pyc"):
+                continue
+            p = os.path.join(d, f)
+            with open(p, "rb") as fh:
+                out[os.path.relpath(p, base)] = (fh.read(), os.stat(p).st_mode & 0o111 != 0)
+    return out
+
+
+def test_app_bundle_matches_source(tmp_path):
+    """The .app carries its own copy of the code. If this fails, run
+    python3 tools/build_app.py and commit the result."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_app", os.path.join(ROOT, "tools", "build_app.py"))
+    build_app = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build_app)
+    fresh = build_app.build(str(tmp_path))
+    committed = os.path.join(ROOT, "Video Downloader.app")
+    assert _tree(fresh) == _tree(committed)
+    launcher = os.path.join(committed, "Contents", "MacOS", "Video Downloader")
+    assert os.access(launcher, os.X_OK)
+
+
+def test_setup_check_reports_state(tmp_path):
+    env = dict(os.environ, HOME=str(tmp_path))
+    r = subprocess.run(["bash", os.path.join(ROOT, "setup.sh"), "--check"], env=env)
+    assert r.returncode == 1                       # Python found, nothing installed yet
+    out = subprocess.run(["bash", os.path.join(ROOT, "setup.sh"), "--python"], env=env,
+                         capture_output=True, text=True).stdout.strip()
+    assert out == f"{tmp_path}/Library/Application Support/Video Downloader/venv/bin/python"
+
+
+def test_close_button_hides_but_quit_quits(store):
+    from vdl import desktop
+    shell = desktop.Desktop("http://127.0.0.1:8737/", store)
+    hidden = []
+    shell.hide = lambda: hidden.append(True)
+    shell._told_about_hiding = True
+    assert shell._on_closing() is False and hidden          # red button: keep running
+
+    def applicationShouldTerminate_():                      # what Cmd+Q goes through
+        return shell._on_closing()
+    assert applicationShouldTerminate_() is None
+
+
+def test_show_endpoint_uses_window_hook(client):
+    shown = []
+    client.application.config["show_window"] = lambda: shown.append(True)
+    assert client.post("/api/show", headers=H).status_code == 200
+    assert shown == [True]

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Downloader</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e8572a'/%3E%3Cpath d='M16 8v12m-5-5 5 5 5-5M9 24h14' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="drop-overlay" id="dropOverlay"><div>Drop the link to grab its video</div></div>
+
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <h1>Video Downloader</h1>
+    <span class="watch-pill" id="watchPill" title="Copy a video link in any browser and you'll be asked whether to download it">Watching clipboard</span>
+  </div>
+  <nav>
+    <button class="ghost" id="openFolder">Open folder</button>
+    <button class="ghost" id="openSettings">Settings</button>
+    <button class="ghost" id="quitApp" title="Stop the app">Quit</button>
+  </nav>
+</header>
+
+<main>
+  <div id="notices"></div>
+  <div id="pending"></div>
+
+  <form class="grab" id="grabForm" autocomplete="off">
+    <input id="urlInput" type="url" placeholder="Paste a video page link, or drag one here" required>
+    <button type="submit" class="primary" id="grabBtn">Look up</button>
+  </form>
+
+  <section id="preview" class="preview" hidden></section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Downloads</h2>
+      <button class="link" id="clearJobs">Clear finished</button>
+    </div>
+    <ul id="jobs" class="jobs"></ul>
+    <p class="empty" id="jobsEmpty">Nothing yet. Copy a video link in Firefox and it'll show up here.</p>
+  </section>
+
+  <section class="panel">
+    <details id="historyBox">
+      <summary><h2>History</h2><span class="muted" id="historyCount"></span></summary>
+      <ul id="history" class="history"></ul>
+      <div class="history-foot"><button class="link" id="clearHistory">Clear history</button></div>
+    </details>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2>Settings</h2>
+
+    <label class="field">
+      <span>Save videos to</span>
+      <div class="row">
+        <input name="save_dir" id="saveDir">
+        <button type="button" id="chooseFolder">Choose…</button>
+      </div>
+    </label>
+
+    <label class="field">
+      <span>Default quality</span>
+      <select name="quality">
+        <option value="best">Best available</option>
+        <option value="2160">Up to 4K</option>
+        <option value="1440">Up to 1440p</option>
+        <option value="1080">Up to 1080p</option>
+        <option value="720">Up to 720p</option>
+        <option value="480">Up to 480p</option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span>File names</span>
+      <select name="filename">
+        <option value="title">Video title</option>
+        <option value="title_id">Video title [video ID]</option>
+        <option value="site_title">Site - Uploader - Title</option>
+      </select>
+    </label>
+
+    <label class="check"><input type="checkbox" name="mac_compatible">
+      <span>Mac-friendly files<small>Prefers H.264 so videos play in QuickTime and Finder previews. Some sites top out at 1080p this way.</small></span></label>
+
+    <label class="check"><input type="checkbox" name="watch_clipboard">
+      <span>Watch the clipboard<small>When you copy a video link in any browser, offer to download it.</small></span></label>
+
+    <label class="check"><input type="checkbox" name="native_prompt">
+      <span>Pop-up prompt<small>Show a Mac dialog even when this tab isn't in front.</small></span></label>
+
+    <label class="check"><input type="checkbox" name="prompt_all_links">
+      <span>Ask about every copied link<small>Normally only links from sites yt-dlp specifically supports.</small></span></label>
+
+    <label class="check"><input type="checkbox" name="keep_history">
+      <span>Keep download history<small>Stored only on this Mac. Turning it off erases it.</small></span></label>
+
+    <label class="field">
+      <span>Downloads at once</span>
+      <select name="max_parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+    </label>
+
+    <div class="engine">
+      <div><strong>yt-dlp</strong> <span id="ytdlpVersion" class="muted"></span>
+        <small>Sites change often. If downloads start failing, update.</small></div>
+      <button type="button" id="updateYtdlp">Update yt-dlp</button>
+    </div>
+    <p class="update-note" id="updateNote" hidden></p>
+
+    <div class="dialog-foot">
+      <button value="cancel" class="ghost">Cancel</button>
+      <button value="save" class="primary" id="saveSettings">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<template id="jobTpl">
+  <li class="job">
+    <div class="job-main">
+      <div class="job-title"></div>
+      <div class="job-meta"></div>
+      <div class="bar"><span></span></div>
+    </div>
+    <div class="job-actions"></div>
+  </li>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

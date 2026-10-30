@@ -1,0 +1,4 @@
+yt-dlp[default,deno]
+imageio-ffmpeg
+flask>=3.0
+pywebview>=6.0

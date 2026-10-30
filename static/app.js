@@ -291,14 +291,12 @@ function renderNotices(state) {
   if (!state.ffmpeg) {
     notes.push(el("div", { class: "notice" },
       el("strong", {}, "ffmpeg is missing. "),
-      "Without it most sites only offer lower-quality files. Quit the app and double-click ",
-      el("code", {}, "start.command"), " again to finish setup."));
+      "Without it most sites only offer lower-quality files. Quit the app and open it again to finish setup."));
   }
   if (!state.deno) {
     notes.push(el("div", { class: "notice" },
       el("strong", {}, "deno is missing. "),
-      "YouTube downloads need it (other sites are fine). Quit the app and double-click ",
-      el("code", {}, "start.command"), " again to finish setup."));
+      "YouTube downloads need it (other sites are fine). Quit the app and open it again to finish setup."));
   }
   if (!state.clipboard_available) {
     notes.push(el("div", { class: "notice" }, "Clipboard watching only works on a Mac. Paste links into the box below instead."));
@@ -390,7 +388,7 @@ $("#quitApp").addEventListener("click", async () => {
   await api("/api/quit", {});
   document.body.replaceChildren(el("main", {}, el("div", { class: "panel" },
     el("h1", {}, "Video Downloader has stopped."),
-    el("p", { class: "muted" }, "Double-click start.command to open it again. You can close this tab."))));
+    el("p", { class: "muted" }, "Open Video Downloader again whenever you need it."))));
   stopped = true;
 });
 
@@ -417,7 +415,7 @@ async function poll() {
     if (++failures === 3) {
       $("#notices").hidden = false;
       $("#notices").replaceChildren(el("div", { class: "notice" },
-        "Can't reach the app. It may have been closed. Double-click start.command to start it again."));
+        "Can't reach the app. It may have been closed. Open Video Downloader again."));
     }
   }
 }
