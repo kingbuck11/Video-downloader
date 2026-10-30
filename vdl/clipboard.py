@@ -12,7 +12,7 @@ from . import downloader
 from .downloader import looks_like_url, site_for
 
 POLL_SECONDS = 1.0
-QUALITY_NAMES = {"best": "best quality", "audio": "audio only"}
+QUALITY_NAMES = {"best": "best quality"}
 
 # argv: 1 message, 2 download-button label
 _ASK_SCRIPT = [
@@ -60,7 +60,7 @@ def describe(info, quality):
     lines.append(f"Size at {_quality_label(quality, option)}: {size}")
     # mention the smallest video option if it's much smaller
     videos = [o for o in info.get("options") or []
-              if o["quality"] != "audio" and o.get("bytes") and not o.get("duplicate")]
+              if o.get("bytes") and not o.get("duplicate")]
     if option and option.get("bytes") and videos:
         small = min(videos, key=lambda o: o["bytes"])
         if small["bytes"] < option["bytes"] * 0.6:

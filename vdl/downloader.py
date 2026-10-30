@@ -160,12 +160,6 @@ def build_options(settings, *, has_ffmpeg, allow_playlist=False):
         "ignoreerrors": "only_download" if allow_playlist else False,
     }
 
-    if quality == "audio":
-        opts["format"] = "ba[ext=m4a]/ba/b"
-        if has_ffmpeg:
-            opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "m4a"}]
-        return opts
-
     cap = f"[height<={quality}]" if quality.isdigit() else ""
     if has_ffmpeg:
         # best video + best audio merged; fall back to a single combined file, then anything
@@ -183,7 +177,7 @@ def build_options(settings, *, has_ffmpeg, allow_playlist=False):
 
 # ---------------------------------------------------------------- info lookup
 
-QUALITIES = ("best", "2160", "1440", "1080", "720", "480", "audio")
+QUALITIES = ("best", "2160", "1440", "1080", "720", "480")
 
 
 def fetch_info(url, settings=None):
@@ -291,7 +285,7 @@ def estimate_options(processed, settings):
         video = next((f for f in fmts if f.get("vcodec") not in (None, "none")), None)
         results.append({
             "quality": quality,
-            "height": video.get("height") if video and quality != "audio" else None,
+            "height": video.get("height") if video else None,
             "bytes": total,
             "exact": bool(total) and exact,
             "duplicate": duplicate,
@@ -489,7 +483,6 @@ class DownloadManager:
             job.status = "processing"
             job.detail = {
                 "Merger": "Combining video and audio…",
-                "FFmpegExtractAudio": "Converting audio…",
             }.get(d.get("postprocessor"), "Finishing up…")
         elif d.get("status") == "finished" and job.status == "processing":
             job.status = "downloading"

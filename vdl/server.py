@@ -89,7 +89,7 @@ def create_app(store=None, port=8737, start_watcher=True):
         if not downloader.looks_like_url(url):
             return jsonify(error="That doesn't look like a web link."), 400
         quality = body.get("quality")
-        if quality not in (None, "best", "2160", "1440", "1080", "720", "480", "audio"):
+        if quality not in (None, "best", "2160", "1440", "1080", "720", "480"):
             quality = None
         if body.get("pending_id"):
             watcher.dismiss(body["pending_id"])

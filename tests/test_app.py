@@ -47,12 +47,6 @@ def test_height_cap_and_no_ffmpeg_fallback(store):
     assert "format_sort" not in o
 
 
-def test_audio_only(store):
-    o = downloader.build_options(dict(store.settings, quality="audio"), has_ffmpeg=True)
-    assert o["format"].startswith("ba")
-    assert o["postprocessors"][0]["preferredcodec"] == "m4a"
-
-
 def test_playlist_goes_in_subfolder(store):
     o = downloader.build_options(store.settings, has_ffmpeg=True, allow_playlist=True)
     assert o["noplaylist"] is False and "playlist" in o["outtmpl"]
@@ -79,6 +73,14 @@ def test_clipboard_prompts_only_for_video_sites(store):
 
 
 # ------------------------------------------------------------------ settings + history
+
+def test_removed_choice_falls_back_to_default(tmp_path):
+    import json
+    d = tmp_path / "old"
+    d.mkdir()
+    (d / "settings.json").write_text(json.dumps({"quality": "audio"}))
+    assert Store(str(d)).settings["quality"] == "best"
+
 
 def test_settings_validation(store):
     s = store.update_settings({"quality": "9999", "max_parallel": 50, "bogus": 1, "filename": "title_id"})
@@ -188,7 +190,7 @@ def test_sizes_follow_the_real_format_choice():
     assert mac["best"]["exact"] is False                 # estimated from bitrate
     assert mac["1080"]["duplicate"] and not mac["720"]["duplicate"]
     assert mac["480"]["bytes"] == 69_000_000
-    assert mac["audio"]["bytes"] == 9_000_000 and mac["audio"]["exact"] is True
+    assert "audio" not in mac
     anyc = {o["quality"]: o for o in downloader.estimate_options(info, {"mac_compatible": False})}
     assert anyc["best"]["height"] == 2160 and anyc["best"]["bytes"] == 1_209_000_000
 

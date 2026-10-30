@@ -23,7 +23,7 @@ def data_dir():
 
 DEFAULTS = {
     "save_dir": os.path.expanduser("~/Downloads/Videos"),
-    "quality": "best",            # best | 2160 | 1440 | 1080 | 720 | 480 | audio
+    "quality": "best",            # best | 2160 | 1440 | 1080 | 720 | 480
     "mac_compatible": True,       # prefer H.264/AAC so files play in QuickTime and Finder previews
     "filename": "title",          # title | title_id | site_title
     "watch_clipboard": True,      # notice video links copied in any browser
@@ -34,7 +34,7 @@ DEFAULTS = {
 }
 
 VALID = {
-    "quality": {"best", "2160", "1440", "1080", "720", "480", "audio"},
+    "quality": {"best", "2160", "1440", "1080", "720", "480"},
     "filename": {"title", "title_id", "site_title"},
 }
 
@@ -50,6 +50,9 @@ class Store:
         self._lock = threading.Lock()
         self.settings = dict(DEFAULTS)
         self.settings.update(self._load(self.settings_path, {}))
+        for key, allowed in VALID.items():     # e.g. a choice that's since been removed
+            if self.settings.get(key) not in allowed:
+                self.settings[key] = DEFAULTS[key]
         self.history = self._load(self.history_path, [])
 
     @staticmethod

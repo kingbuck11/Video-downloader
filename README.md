@@ -21,7 +21,7 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 - **Open: launching needs a Terminal window and a browser tab.** `start.command` opens Terminal, and closing that window stops the app. The owner wants this fixed, same as in their other local apps (like the Video Organizer). Likely fix: a double-clickable `.app` that runs in the background with a menu-bar icon (Open, Pause clipboard watching, Quit) and optional start at login, no Terminal window.
 - Still to check on the Mac: the new size display on real sites.
 - Sizes marked ≈ are estimates from the stream's bitrate (most streaming sites don't publish exact sizes); expect them to be within roughly 10–20%. Some sites give no bitrate, so the size shows as unknown. Playlists don't show sizes.
-- The bundled ffmpeg doesn't include ffprobe. Merging and audio-only downloads work without it; if a site needs ffprobe, yt-dlp will say so.
+- The bundled ffmpeg doesn't include ffprobe. Merging video and audio works without it; if a site needs ffprobe, yt-dlp will say so.
 - The pop-up is a plain macOS dialog and may open behind other windows. If that's annoying, consider a menu-bar icon or notification instead.
 - Changing "Downloads at once" to a lower number only takes effect after restarting the app.
 - Ideas not built yet: saving straight into the Video Organizer's folder or passing tags to it, subtitles download.
@@ -37,6 +37,7 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 - **Settings and history stored outside the repo** (`~/Library/Application Support/Video Downloader/`), so code updates never wipe them.
 - **Size comes from yt-dlp's own format choice** for each quality (same rules as the download, including Mac-friendly), so the number shown matches the file you'd get. Direct video files that don't list a size get a HEAD request to the server (nothing downloaded).
 - **The pop-up waits for the lookup** (a few seconds) so it can show the size, rather than asking instantly without one.
+- **No audio-only option** (removed Oct 30 at the owner's request).
 - **No DRM circumvention.**
 - **No Homebrew.** It only supports Apple Silicon now. Everything installs with pip into `.venv`, which works on Intel and Apple Silicon and keeps the rest of the Mac untouched.
 - **Get the code as a ZIP from GitHub** rather than `git clone`, so no developer tools are needed on the Mac.
@@ -67,7 +68,7 @@ The pop-up only appears for links from sites yt-dlp specifically supports (the [
 | Setting | What it does |
 |---|---|
 | Save videos to | Folder for downloads |
-| Default quality | Best, a resolution cap (4K down to 480p), or audio only |
+| Default quality | Best, or a resolution cap (4K down to 480p) |
 | File names | Title, title plus video ID, or site, uploader and title |
 | Mac-friendly files | Prefers H.264 so files play in QuickTime and Finder previews (may cap some sites at 1080p) |
 | Watch the clipboard / Pop-up prompt | Turn the copy-to-download behavior on or off |

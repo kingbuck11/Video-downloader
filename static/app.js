@@ -42,7 +42,7 @@ const fmt = {
   size(o) { return o && o.bytes ? (o.exact ? "" : "≈") + fmt.bytes(o.bytes) : "size unknown"; },
   eta(s) { if (s == null) return ""; return s < 60 ? `${s}s left` : `${Math.round(s / 60)} min left`; },
   host(url) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } },
-  quality(q) { return { best: "Best", audio: "Audio only" }[q] || (q ? `≤${q}p` : ""); },
+  quality(q) { return { best: "Best" }[q] || (q ? `≤${q}p` : ""); },
   when(iso) {
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " +
@@ -82,7 +82,7 @@ async function lookUp(url, pendingId, known) {
 
 function optionLabel(o) {
   const name = o.quality === "best" ? `Best${o.height ? ` (${o.height}p)` : ""}`
-    : o.quality === "audio" ? "Audio only" : `${o.height || o.quality}p`;
+    : `${o.height || o.quality}p`;
   return `${name} · ${fmt.size(o)}`;
 }
 
@@ -93,7 +93,7 @@ function qualityOptions(info) {
       .map((o) => [o.quality, optionLabel(o), o.bytes]);
   }
   return [["best", "Best available"], ["1080", "Up to 1080p"], ["720", "Up to 720p"],
-    ["480", "Up to 480p"], ["audio", "Audio only (M4A)"]];
+    ["480", "Up to 480p"]];
 }
 
 function defaultChoice(info, values) {
@@ -121,7 +121,7 @@ function renderPreview(info, pendingId) {
     : defaultChoice(info, choices.map((c) => c[0]));
   const sizes = Object.fromEntries(choices.map((c) => [c[0], c[2]]));
   const known = choices.filter((c) => c[2]);
-  const smallest = known.filter((c) => c[0] !== "audio").sort((a, b) => a[2] - b[2])[0];
+  const smallest = known.slice().sort((a, b) => a[2] - b[2])[0];
   const sizeNote = el("div", { class: "sub size-note" });
   const updateNote = () => {
     const chosen = sizes[select.value];
