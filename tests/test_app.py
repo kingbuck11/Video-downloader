@@ -69,13 +69,13 @@ def test_site_detection():
 
 def test_clipboard_prompts_only_for_video_sites(store):
     w = ClipboardWatcher(store, manager=None, open_app=lambda: None)
-    assert w.consider("https://example.com/recipe") is None
-    item = w.consider("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert w.consider("https://example.com/recipe", background=False) is None
+    item = w.consider("https://www.youtube.com/watch?v=dQw4w9WgXcQ", background=False)
     assert item and item["site"]
-    assert w.consider("https://www.youtube.com/watch?v=dQw4w9WgXcQ") is None  # no repeat prompt
-    assert w.consider("hello there") is None
+    assert w.consider("https://www.youtube.com/watch?v=dQw4w9WgXcQ", background=False) is None  # no repeat prompt
+    assert w.consider("hello there", background=False) is None
     store.update_settings({"prompt_all_links": True})
-    assert w.consider("https://example.com/recipe")
+    assert w.consider("https://example.com/recipe", background=False)
 
 
 # ------------------------------------------------------------------ settings + history
@@ -133,6 +133,7 @@ def test_end_to_end_download_from_local_server(tmp_path, client, store):
     try:
         info = client.post("/api/info", json={"url": url}, headers=H).get_json()
         assert info["kind"] == "video", info
+        assert info["options"][0]["bytes"], info["options"]
 
         job = client.post("/api/download", json={"url": url}, headers=H).get_json()
         for _ in range(100):
@@ -143,6 +144,7 @@ def test_end_to_end_download_from_local_server(tmp_path, client, store):
             time.sleep(0.1)
         assert current["status"] == "done", current
         assert os.path.exists(current["filepath"])
+        assert current["total_bytes"] == os.path.getsize(current["filepath"])
         assert current["filepath"].startswith(store.settings["save_dir"])
         hist = client.get("/api/history", headers=H).get_json()
         assert hist[0]["exists"] and hist[0]["url"] == url
@@ -157,3 +159,63 @@ def test_cancel_queued_job(client, store):
     mgr.cancel(job.id)
     time.sleep(0.3)
     assert mgr.jobs[job.id].status == "cancelled"
+
+
+# ------------------------------------------------------------------ size estimates
+
+def _fake_youtube_info():
+    import copy
+    import yt_dlp
+    fmts = []
+    for h, tbr, vc in [(2160, 16000, "vp9"), (1080, 4500, "vp9"), (1080, 3000, "avc1.640028"),
+                       (720, 1500, "avc1.4d401f"), (480, 800, "avc1.4d401e")]:
+        fmts.append(dict(format_id=f"v{h}{vc[:3]}", url=f"https://x/{h}{vc}",
+                         ext="mp4" if vc.startswith("avc") else "webm", height=h, width=h * 16 // 9,
+                         vcodec=vc, acodec="none", tbr=tbr, protocol="https"))
+    fmts.append(dict(format_id="a1", url="https://x/a", ext="m4a", vcodec="none", acodec="mp4a.40.2",
+                     abr=128, tbr=128, filesize=9_000_000, protocol="https"))
+    raw = dict(id="abc", title="Ten minute talk", extractor="youtube", extractor_key="Youtube",
+               webpage_url="https://www.youtube.com/watch?v=abc", duration=600, formats=fmts)
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as y:
+        return y.process_ie_result(copy.deepcopy(raw), download=False)
+
+
+def test_sizes_follow_the_real_format_choice():
+    info = _fake_youtube_info()
+    mac = {o["quality"]: o for o in downloader.estimate_options(info, {"mac_compatible": True})}
+    # Mac-friendly best is the 1080p H.264 file: 3000 kbps * 600 s = 225 MB, + 9 MB audio
+    assert mac["best"]["height"] == 1080 and mac["best"]["bytes"] == 234_000_000
+    assert mac["best"]["exact"] is False                 # estimated from bitrate
+    assert mac["1080"]["duplicate"] and not mac["720"]["duplicate"]
+    assert mac["480"]["bytes"] == 69_000_000
+    assert mac["audio"]["bytes"] == 9_000_000 and mac["audio"]["exact"] is True
+    anyc = {o["quality"]: o for o in downloader.estimate_options(info, {"mac_compatible": False})}
+    assert anyc["best"]["height"] == 2160 and anyc["best"]["bytes"] == 1_209_000_000
+
+
+def test_prompt_text_shows_size_and_smaller_option():
+    from vdl.clipboard import describe
+    info = {"title": "Ten minute talk", "site": "Youtube", "duration": 600,
+            "options": downloader.estimate_options(_fake_youtube_info(), {"mac_compatible": False})}
+    text, size = describe(info, "best")
+    assert size == "≈1.2 GB"
+    assert "Size at best quality, 2160p: ≈1.2 GB" in text
+    assert "Smallest: 480p, ≈69 MB" in text
+    assert downloader.format_bytes(None) == "size unknown"
+
+
+def test_clipboard_looks_up_before_asking(store):
+    store.update_settings({"native_prompt": False})
+    w = ClipboardWatcher(store, manager=None, open_app=lambda: None,
+                         lookup=lambda url: {"kind": "video", "title": "Clip", "options": []})
+    item = w.consider("https://vimeo.com/76979871", background=False)
+    assert item["state"] == "looking"
+    w._look_up_and_ask(item)
+    assert item["state"] == "ready" and item["info"]["title"] == "Clip"
+
+    def boom(url):
+        raise RuntimeError("ERROR: Private video")
+    w.lookup = boom
+    item2 = w.consider("https://vimeo.com/1", background=False)
+    w._look_up_and_ask(item2)
+    assert item2["state"] == "error" and "private" in item2["error"].lower()

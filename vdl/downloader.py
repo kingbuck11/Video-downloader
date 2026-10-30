@@ -1,4 +1,5 @@
 """Everything that talks to yt-dlp: site detection, video info, and the download queue."""
+import copy
 import os
 import queue
 import shutil
@@ -86,6 +87,33 @@ def site_for(url):
     return None
 
 
+def _download_total(job, d, current_total):
+    """Total size of everything this video needs (video and audio tracks
+    download one after the other), so progress can say "of 1.2 GB"."""
+    info = d.get("info_dict") or {}
+    parts = info.get("requested_formats")
+    if parts:
+        sizes = [p.get("filesize") or p.get("filesize_approx") for p in parts]
+        if all(sizes):
+            return sum(sizes)
+    return current_total
+
+
+def format_bytes(n, exact=True):
+    if not n:
+        return "size unknown"
+    for unit in ("bytes", "KB", "MB", "GB", "TB"):
+        if n < 1000 or unit == "TB":
+            break
+        n /= 1000
+    text = f"{n:.1f} {unit}" if unit in ("GB", "TB") and n < 10 else f"{n:.0f} {unit}"
+    return text if exact else "≈" + text
+
+
+def option_for(info, quality):
+    return next((o for o in info.get("options") or [] if o["quality"] == quality), None)
+
+
 def friendly_error(err):
     msg = str(err)
     msg = msg.replace("ERROR: ", "").strip()
@@ -155,13 +183,17 @@ def build_options(settings, *, has_ffmpeg, allow_playlist=False):
 
 # ---------------------------------------------------------------- info lookup
 
-def fetch_info(url):
-    """Quick look at a link before downloading: title, thumbnail, playlist size."""
+QUALITIES = ("best", "2160", "1440", "1080", "720", "480", "audio")
+
+
+def fetch_info(url, settings=None):
+    """Quick look at a link before downloading: title, thumbnail, playlist size,
+    and the estimated file size for each quality choice."""
     opts = {"quiet": True, "no_warnings": True, "skip_download": True,
             "extract_flat": "in_playlist", "noplaylist": True, **js_runtime_options()}
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    info = ydl.sanitize_info(info)
+        raw = ydl.extract_info(url, download=False)
+    info = ydl.sanitize_info(raw)
 
     if info.get("_type") == "playlist":
         entries = info.get("entries") or []
@@ -175,6 +207,7 @@ def fetch_info(url):
         }
 
     heights = sorted({f.get("height") for f in info.get("formats") or [] if f.get("height")}, reverse=True)
+    options = estimate_options(raw, settings or {}) if not info.get("is_live") else []
     return {
         "kind": "video",
         "title": info.get("title") or "Untitled video",
@@ -183,9 +216,87 @@ def fetch_info(url):
         "duration": info.get("duration"),
         "thumbnail": _thumb(info),
         "heights": heights,
+        "options": options,
         "is_live": bool(info.get("is_live")),
         "url": info.get("webpage_url") or url,
     }
+
+
+def _format_size(fmt, duration):
+    """Bytes for one format: exact if the site says, else estimated from bitrate."""
+    if fmt.get("filesize"):
+        return fmt["filesize"], True
+    if fmt.get("filesize_approx"):
+        return fmt["filesize_approx"], False
+    if fmt.get("tbr") and duration:
+        return int(fmt["tbr"] * 1000 / 8 * duration), False
+    return None, False
+
+
+def _ask_server_for_size(fmt, cache):
+    """Direct video files often don't list a size, but the server will say how
+    big the file is if asked (a HEAD request: nothing is downloaded)."""
+    url = fmt.get("url")
+    if not url or fmt.get("protocol") not in ("http", "https", None) or ".m3u8" in url:
+        return None
+    if url not in cache:
+        cache[url] = None
+        try:
+            from yt_dlp.networking import Request
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 8}) as ydl:
+                resp = ydl.urlopen(Request(url, method="HEAD", headers=fmt.get("http_headers") or {}))
+                length = resp.headers.get("Content-Length")
+                resp.close()
+            cache[url] = int(length) if length and int(length) > 0 else None
+        except Exception:  # noqa: BLE001 - size stays unknown
+            pass
+    return cache[url]
+
+
+def estimate_options(processed, settings):
+    """For each quality choice, ask yt-dlp which format(s) it would really pick
+    (same rules as the download) and add up their sizes. No network needed:
+    it reuses the format list already fetched."""
+    settings = {"save_dir": "", "mac_compatible": True, **settings}
+    has_ffmpeg = bool(ffmpeg_path())
+    duration = processed.get("duration")
+    by_id = {f.get("format_id"): f for f in processed.get("formats") or []}
+    results, seen, head_cache = [], set(), {}
+    for quality in QUALITIES:
+        opts = build_options(dict(settings, quality=quality), has_ffmpeg=has_ffmpeg)
+        pick = {k: opts[k] for k in ("format", "format_sort") if k in opts}
+        try:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, **pick}) as ydl:
+                fresh = copy.deepcopy(processed)
+                for stale in ("requested_formats", "requested_downloads", "format_id", "format"):
+                    fresh.pop(stale, None)   # left over from the first lookup's own choice
+                chosen = ydl.process_video_result(fresh, download=False)
+        except Exception:  # noqa: BLE001 - no format matches this choice
+            continue
+        ids = [f.get("format_id") for f in chosen.get("requested_formats") or []] or [chosen.get("format_id")]
+        fmts = [by_id.get(i) or chosen for i in ids]
+        key = "+".join(str(i) for i in ids)
+        duplicate = key in seen   # same file as a higher choice (e.g. video tops out at 720p)
+        seen.add(key)
+        total, exact = 0, True
+        for f in fmts:
+            size, is_exact = _format_size(f, duration)
+            if size is None:
+                size, is_exact = _ask_server_for_size(f, head_cache), True
+            if size is None:
+                total = None
+                break
+            total += size
+            exact = exact and is_exact
+        video = next((f for f in fmts if f.get("vcodec") not in (None, "none")), None)
+        results.append({
+            "quality": quality,
+            "height": video.get("height") if video and quality != "audio" else None,
+            "bytes": total,
+            "exact": bool(total) and exact,
+            "duplicate": duplicate,
+        })
+    return results
 
 
 def _thumb(info):
@@ -210,6 +321,9 @@ class Job:
         self.percent = 0.0
         self.speed = None
         self.eta = None
+        self.total_bytes = None
+        self._video_id = None
+        self._parts_done = 0
         self.detail = ""
         self.filepath = None
         self.files = []
@@ -220,7 +334,7 @@ class Job:
 
     def to_dict(self):
         return {k: getattr(self, k) for k in (
-            "id", "url", "title", "quality", "playlist", "status", "percent", "speed", "eta",
+            "id", "url", "title", "quality", "playlist", "status", "percent", "speed", "eta", "total_bytes",
             "detail", "filepath", "error", "site", "created")} | {"file_count": len(self.files)}
 
 
@@ -319,6 +433,9 @@ class DownloadManager:
             if not job.files and job.playlist:
                 raise DownloadError("None of the playlist's videos could be downloaded.")
             job.filepath = job.files[0] if job.files else None
+            sizes = [os.path.getsize(f) for f in job.files if os.path.exists(f)]
+            if sizes:
+                job.total_bytes = sum(sizes)          # the real size on disk
             job.status = "done"
             job.percent = 100.0
             job.detail = f"{len(job.files)} files" if len(job.files) > 1 else ""
@@ -344,11 +461,16 @@ class DownloadManager:
         info = d.get("info_dict") or {}
         if info.get("title") and job.title == job.url:
             job.title = info["title"]
+        if info.get("id") != job._video_id:      # next video in a playlist
+            job._video_id, job._parts_done = info.get("id"), 0
         if d["status"] == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate")
             done = d.get("downloaded_bytes") or 0
             if total:
-                job.percent = round(min(99.9, done * 100 / total), 1)
+                job.total_bytes = _download_total(job, d, total)
+                # video and audio tracks download one after another: show one 0-100% for both
+                overall = (job._parts_done + done) * 100 / max(job.total_bytes, job._parts_done + total)
+                job.percent = round(min(99.9, overall), 1)
             elif d.get("fragment_count"):
                 job.percent = round(min(99.9, (d.get("fragment_index") or 0) * 100 / d["fragment_count"]), 1)
             job.speed = d.get("speed")
@@ -356,13 +478,11 @@ class DownloadManager:
             parts = []
             if job.playlist and info.get("playlist_index"):
                 parts.append(f"Video {info['playlist_index']} of {info.get('n_entries') or '?'}")
-            if info.get("vcodec") == "none" and not job.quality == "audio":
-                parts.append("audio track")
-            elif info.get("acodec") == "none":
-                parts.append("video track")
             job.detail = " · ".join(parts)
         elif d["status"] == "finished":
             job.speed = job.eta = None
+            if info.get("requested_formats"):
+                job._parts_done += d.get("total_bytes") or d.get("downloaded_bytes") or 0
 
     def _on_post(self, job, d):
         if d.get("status") == "started":

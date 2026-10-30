@@ -78,7 +78,7 @@ def create_app(store=None, port=8737, start_watcher=True):
         if not downloader.looks_like_url(url):
             return jsonify(error="That doesn't look like a web link."), 400
         try:
-            return jsonify(downloader.fetch_info(url))
+            return jsonify(downloader.fetch_info(url, store.settings))
         except Exception as err:  # noqa: BLE001
             return jsonify(error=downloader.friendly_error(err)), 422
 

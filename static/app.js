@@ -32,12 +32,14 @@ const fmt = {
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
     return (h ? `${h}:${String(m).padStart(2, "0")}` : m) + ":" + String(sec).padStart(2, "0");
   },
+  // decimal units, matching what Finder shows
   bytes(b) {
     if (!b) return "";
-    const u = ["B", "KB", "MB", "GB"]; let i = 0;
-    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
-    return `${b.toFixed(b < 10 && i ? 1 : 0)} ${u[i]}`;
+    const u = ["bytes", "KB", "MB", "GB", "TB"]; let i = 0;
+    while (b >= 1000 && i < u.length - 1) { b /= 1000; i++; }
+    return `${b.toFixed(b < 10 && i >= 3 ? 1 : 0)} ${u[i]}`;
   },
+  size(o) { return o && o.bytes ? (o.exact ? "" : "≈") + fmt.bytes(o.bytes) : "size unknown"; },
   eta(s) { if (s == null) return ""; return s < 60 ? `${s}s left` : `${Math.round(s / 60)} min left`; },
   host(url) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } },
   quality(q) { return { best: "Best", audio: "Audio only" }[q] || (q ? `≤${q}p` : ""); },
@@ -56,9 +58,10 @@ const handledPending = new Set();
 
 const preview = $("#preview");
 
-async function lookUp(url, pendingId) {
+async function lookUp(url, pendingId, known) {
   url = url.trim();
   if (!url) return;
+  if (known) { $("#urlInput").value = url; preview.hidden = false; renderPreview(known, pendingId); return; }
   $("#urlInput").value = url;
   preview.hidden = false;
   preview.className = "preview loading";
@@ -77,16 +80,31 @@ async function lookUp(url, pendingId) {
   renderPreview(info, pendingId);
 }
 
-function qualityOptions(heights) {
-  const opts = [["best", "Best available"]];
-  const caps = [2160, 1440, 1080, 720, 480];
-  caps.forEach((h, i) => {
-    const below = caps[i + 1] || 0;
-    // only offer a cap if the video really has a size in that band
-    if (!heights.length || heights.some((x) => x <= h && x > below)) opts.push([String(h), `${h}p`]);
-  });
-  opts.push(["audio", "Audio only (M4A)"]);
-  return opts;
+function optionLabel(o) {
+  const name = o.quality === "best" ? `Best${o.height ? ` (${o.height}p)` : ""}`
+    : o.quality === "audio" ? "Audio only" : `${o.height || o.quality}p`;
+  return `${name} · ${fmt.size(o)}`;
+}
+
+function qualityOptions(info) {
+  // sizes come from the server: the same format choice the download will make
+  if (info.options && info.options.length) {
+    return info.options.filter((o) => !o.duplicate || o.quality === "best")
+      .map((o) => [o.quality, optionLabel(o), o.bytes]);
+  }
+  return [["best", "Best available"], ["1080", "Up to 1080p"], ["720", "Up to 720p"],
+    ["480", "Up to 480p"], ["audio", "Audio only (M4A)"]];
+}
+
+function defaultChoice(info, values) {
+  // the default quality may be hidden as a duplicate (e.g. "1080p" when best is 1080p)
+  const wanted = (info.options || []).find((o) => o.quality === settings.quality);
+  if (values.includes(settings.quality)) return settings.quality;
+  if (wanted) {
+    const same = (info.options || []).find((o) => values.includes(o.quality) && o.bytes === wanted.bytes && o.height === wanted.height);
+    if (same) return same.quality;
+  }
+  return "best";
 }
 
 function renderPreview(info, pendingId) {
@@ -97,8 +115,21 @@ function renderPreview(info, pendingId) {
 
   const isList = info.kind === "playlist";
   const select = el("select", { "aria-label": "Quality" });
-  for (const [v, label] of qualityOptions(isList ? [] : info.heights || [])) select.append(el("option", { value: v }, label));
-  select.value = [...select.options].some((o) => o.value === settings.quality) ? settings.quality : "best";
+  const choices = isList ? qualityOptions({}) : qualityOptions(info);
+  for (const [v, label] of choices) select.append(el("option", { value: v }, label));
+  select.value = isList ? (choices.some((c) => c[0] === settings.quality) ? settings.quality : "best")
+    : defaultChoice(info, choices.map((c) => c[0]));
+  const sizes = Object.fromEntries(choices.map((c) => [c[0], c[2]]));
+  const known = choices.filter((c) => c[2]);
+  const smallest = known.filter((c) => c[0] !== "audio").sort((a, b) => a[2] - b[2])[0];
+  const sizeNote = el("div", { class: "sub size-note" });
+  const updateNote = () => {
+    const chosen = sizes[select.value];
+    sizeNote.textContent = !isList && smallest && chosen && smallest[2] < chosen * 0.6
+      ? `Tip: ${smallest[1].split(" · ")[0]} is only ${smallest[1].split(" · ")[1]}.` : "";
+  };
+  select.addEventListener("change", updateNote);
+  updateNote();
 
   const sub = isList
     ? [info.site, `${info.count} videos`].filter(Boolean).join(" · ")
@@ -106,7 +137,7 @@ function renderPreview(info, pendingId) {
 
   const start = (playlist) => async () => {
     const job = await api("/api/download", {
-      url: info.url, title: isList ? info.title : info.title, quality: select.value, playlist, pending_id: pendingId,
+      url: info.url, title: info.title, quality: select.value, playlist, pending_id: pendingId,
     });
     if (job.error) return alert(job.error);
     preview.hidden = true;
@@ -122,6 +153,7 @@ function renderPreview(info, pendingId) {
     el("div", { class: "title" }, info.title),
     el("div", { class: "sub" }, sub),
     info.is_live ? el("div", { class: "sub" }, "This is a live stream; it records until the stream ends or you cancel.") : null,
+    isList ? el("div", { class: "sub" }, "Sizes aren't shown for playlists; each video is checked as it downloads.") : sizeNote,
     el("div", { class: "go" }, select, ...buttons,
       el("button", { class: "ghost", onclick: () => { preview.hidden = true; } }, "Close")),
   ));
@@ -149,27 +181,45 @@ document.addEventListener("drop", (e) => {
 
 let pendingKey = "";
 
+function pendingSummary(p) {
+  if (p.state === "looking") return [el("span", { class: "spinner" }), "Checking the video and its size…"];
+  if (p.state === "error") return [el("span", { class: "err" }, p.error || "No downloadable video found.")];
+  const info = p.info || {};
+  if (info.kind === "playlist") return [`${info.title} · playlist of ${info.count}`];
+  return [el("strong", {}, info.title || p.url), info.duration ? ` · ${fmt.duration(info.duration)}` : ""];
+}
+
 function renderPending(items, force = false) {
   const box = $("#pending");
   const visible = items.filter((p) => !handledPending.has(p.id));
-  const key = visible.map((p) => p.id).join(",");
+  const key = visible.map((p) => p.id + p.state).join(",");
   if (key === pendingKey && !force) return;   // re-rendering would replay the slide-in animation
   pendingKey = key;
-  box.replaceChildren(...visible.map((p) => el("div", { class: "prompt" },
-    el("div", { class: "p-text" },
-      el("div", { class: "p-label" }, `Copied link${p.site ? " · " + p.site : ""}`),
-      el("div", { class: "p-url", title: p.url }, p.url)),
-    el("div", { class: "p-actions" },
-      el("button", { class: "small", onclick: () => { handledPending.add(p.id); renderPending(items); lookUp(p.url, p.id); } }, "Preview"),
-      el("button", { class: "small primary", onclick: async () => {
-        handledPending.add(p.id); renderPending(items);
-        await api("/api/download", { url: p.url, pending_id: p.id }); poll();
-      } }, "Download"),
-      el("button", { class: "small ghost", title: "Ignore", onclick: async () => {
-        handledPending.add(p.id); renderPending(items);
-        await api(`/api/pending/${p.id}/dismiss`, {});
-      } }, "✕")),
-  )));
+  const close = (p) => async () => {
+    handledPending.add(p.id); renderPending(items, true);
+    await api(`/api/pending/${p.id}/dismiss`, {});
+  };
+  box.replaceChildren(...visible.map((p) => {
+    const info = p.info || {};
+    const ready = p.state === "ready";
+    const o = (info.options || []).find((x) => x.quality === settings.quality);
+    const actions = [];
+    if (ready) {
+      actions.push(el("button", { class: "small", onclick: () => {
+        handledPending.add(p.id); renderPending(items, true); lookUp(info.url || p.url, p.id, info);
+      } }, info.kind === "playlist" ? "Open" : "Choose quality"));
+      if (info.kind !== "playlist") actions.push(el("button", { class: "small primary", onclick: async () => {
+        handledPending.add(p.id); renderPending(items, true);
+        await api("/api/download", { url: info.url || p.url, title: info.title, pending_id: p.id }); poll();
+      } }, o && o.bytes ? `Download (${fmt.size(o)})` : "Download"));
+    }
+    actions.push(el("button", { class: "small ghost", title: "Ignore", onclick: close(p) }, "✕"));
+    return el("div", { class: "prompt" },
+      el("div", { class: "p-text" },
+        el("div", { class: "p-label" }, `Copied link · ${info.site || fmt.host(p.url)}`),
+        el("div", { class: "p-url", title: p.url }, ...pendingSummary(p))),
+      el("div", { class: "p-actions" }, ...actions));
+  }));
 }
 
 /* ------------------------------------------------------------ download list */
@@ -200,10 +250,12 @@ function renderJobs(jobs) {
     switch (job.status) {
       case "queued": parts = ["Waiting…", site]; break;
       case "downloading":
-        parts = [`${Math.floor(job.percent || 0)}%`, job.speed ? fmt.bytes(job.speed) + "/s" : "", fmt.eta(job.eta), job.detail];
+        parts = [`${Math.floor(job.percent || 0)}%${job.total_bytes ? " of " + fmt.bytes(job.total_bytes) : ""}`,
+          job.speed ? fmt.bytes(job.speed) + "/s" : "", fmt.eta(job.eta), job.detail];
         break;
       case "processing": parts = [job.detail || "Finishing up…"]; break;
-      case "done": parts = [el("span", { class: "ok" }, "Saved"), job.file_count > 1 ? `${job.file_count} files` : "", site, fmt.quality(job.quality)]; break;
+      case "done": parts = [el("span", { class: "ok" }, "Saved"), job.file_count > 1 ? `${job.file_count} files` : "",
+        fmt.bytes(job.total_bytes), site, fmt.quality(job.quality)]; break;
       case "cancelled": parts = ["Cancelled", site]; break;
       case "error": parts = [el("span", { class: "err" }, job.error || "Failed")]; break;
     }

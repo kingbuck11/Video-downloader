@@ -210,3 +210,7 @@ body.dragging .drop-overlay { display: grid; }
   .prompt { flex-wrap: wrap; }
 }
 #notices, #pending { display: grid; gap: 8px; }
+
+.size-note:empty { display: none; }
+.size-note { color: var(--accent); }
+.prompt .err { color: var(--err); }
