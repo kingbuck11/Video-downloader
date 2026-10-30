@@ -13,15 +13,16 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 - Tested in a Linux sandbox: all 13 automated tests pass, including a real download start to finish, and the screens were checked in light and dark mode.
 - **Oct 30: setup no longer needs Homebrew.** Homebrew dropped Intel Macs, and the owner's Mac is a Mid 2015 Intel MacBook Pro on macOS Monterey 12.7.6. `start.command` now installs yt-dlp, ffmpeg (imageio-ffmpeg) and deno (the `deno` pip package) into the app's own `.venv`. Python comes from the python.org installer.
 - Setup only installs ready-made packages (never compiles), and skips optional yt-dlp extras that don't have a build for the installed Python yet. The owner has Python 3.15.2 from python.org.
-- **Not yet tested on the Mac:** the clipboard pop-up, Finder buttons, the folder picker, and `start.command` itself.
+- **Runs on the owner's Mac** (Oct 30). Not yet tested there: the clipboard pop-up, Finder buttons and the folder picker.
 
 ## Known issues and next steps
 
-- First Mac run: confirm setup works on the Intel/Monterey Mac, and that the pop-up appears (macOS may ask permission the first time).
+- **Open: launching needs a Terminal window and a browser tab.** `start.command` opens Terminal, and closing that window stops the app. The owner wants this fixed, same as in their other local apps (like the Video Organizer). Likely fix: a double-clickable `.app` that runs in the background with a menu-bar icon (Open, Pause clipboard watching, Quit) and optional start at login, no Terminal window.
+- Setup confirmed on the Intel/Monterey Mac (Oct 30): the app opens. Still to check: the clipboard pop-up (macOS may ask permission the first time), a real YouTube download, Show in Finder, and the folder picker.
 - The bundled ffmpeg doesn't include ffprobe. Merging and audio-only downloads work without it; if a site needs ffprobe, yt-dlp will say so.
 - The pop-up is a plain macOS dialog and may open behind other windows. If that's annoying, consider a menu-bar icon or notification instead.
 - Changing "Downloads at once" to a lower number only takes effect after restarting the app.
-- Ideas not built yet: menu-bar icon, auto-start at login, a launcher `.app` instead of `start.command`, saving straight into the Video Organizer's folder or passing tags to it, subtitles download.
+- Ideas not built yet: saving straight into the Video Organizer's folder or passing tags to it, subtitles download.
 
 ## Key decisions
 
