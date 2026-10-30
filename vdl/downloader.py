@@ -2,6 +2,8 @@
 import os
 import queue
 import shutil
+import sys
+import sysconfig
 import threading
 import time
 import uuid
@@ -12,24 +14,31 @@ from yt_dlp.utils import DownloadCancelled, DownloadError
 
 # ---------------------------------------------------------------- helpers
 
-_BREW_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
+def _tool_dirs():
+    """The app's own Python environment first (start.command installs ffmpeg
+    and deno there with pip, so no Homebrew is needed), then common spots."""
+    dirs = [os.path.dirname(sys.executable), sysconfig.get_path("scripts")]
+    return dirs + ["/opt/homebrew/bin", "/usr/local/bin"]
 
 
 def _find_tool(name):
-    """Apps launched outside a shell may not have Homebrew on PATH, so check
-    the usual install spots too."""
-    found = shutil.which(name)
-    if found:
-        return found
-    for folder in _BREW_DIRS:
+    for folder in _tool_dirs():
         candidate = os.path.join(folder, name)
-        if os.path.exists(candidate):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
-    return None
+    return shutil.which(name)
 
 
 def ffmpeg_path():
-    """ffmpeg merges separate video+audio streams into one file."""
+    """ffmpeg merges separate video+audio streams into one file. Normally it
+    comes from the imageio-ffmpeg package (works on Intel and Apple Silicon)."""
+    try:
+        import imageio_ffmpeg
+        found = imageio_ffmpeg.get_ffmpeg_exe()
+        if found and os.path.isfile(found):
+            return found
+    except Exception:  # noqa: BLE001 - package missing or no binary for this Mac
+        pass
     return _find_tool("ffmpeg")
 
 

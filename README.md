@@ -11,11 +11,13 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 
 - **Version 1 built (Oct 29, 2026).** Clipboard watcher with Mac pop-up, paste/drag preview with quality choice, download queue (progress, cancel, retry, Show in Finder), history, settings, yt-dlp updater, and the `start.command` launcher.
 - Tested in a Linux sandbox: all 13 automated tests pass, including a real download start to finish, and the screens were checked in light and dark mode.
+- **Oct 30: setup no longer needs Homebrew.** Homebrew dropped Intel Macs, and the owner's Mac is a Mid 2015 Intel MacBook Pro on macOS Monterey 12.7.6. `start.command` now installs yt-dlp, ffmpeg (imageio-ffmpeg) and deno (the `deno` pip package) into the app's own `.venv`. Python comes from the python.org installer.
 - **Not yet tested on the Mac:** the clipboard pop-up, Finder buttons, the folder picker, and `start.command` itself.
 
 ## Known issues and next steps
 
-- First Mac run: confirm setup works, and that the pop-up appears (macOS may ask permission the first time).
+- First Mac run: confirm setup works on the Intel/Monterey Mac, and that the pop-up appears (macOS may ask permission the first time).
+- The bundled ffmpeg doesn't include ffprobe. Merging and audio-only downloads work without it; if a site needs ffprobe, yt-dlp will say so.
 - The pop-up is a plain macOS dialog and may open behind other windows. If that's annoying, consider a menu-bar icon or notification instead.
 - Changing "Downloads at once" to a lower number only takes effect after restarting the app.
 - Ideas not built yet: menu-bar icon, auto-start at login, a launcher `.app` instead of `start.command`, saving straight into the Video Organizer's folder or passing tags to it, subtitles download.
@@ -30,21 +32,18 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 - **Mac-friendly H.264 by default** so files play in QuickTime and Finder previews.
 - **Settings and history stored outside the repo** (`~/Library/Application Support/Video Downloader/`), so code updates never wipe them.
 - **No DRM circumvention.**
+- **No Homebrew.** It only supports Apple Silicon now. Everything installs with pip into `.venv`, which works on Intel and Apple Silicon and keeps the rest of the Mac untouched.
+- **Get the code as a ZIP from GitHub** rather than `git clone`, so no developer tools are needed on the Mac.
 
 ## First-time setup
 
-1. **Install Homebrew** if you don't have it: see [brew.sh](https://brew.sh).
-2. **Install the helper tools** in Terminal:
-   ```
-   brew install python ffmpeg deno
-   ```
-   - `ffmpeg` combines HD video with its sound track.
-   - `deno` is needed for YouTube.
-3. **Get the app:**
-   ```
-   git clone https://github.com/kingbuck11/video-downloader.git ~/Video-downloader
-   ```
-4. **Double-click `start.command`** in that folder. The first run takes about a minute to set itself up, then the app opens in your browser.
+Works on Intel and Apple Silicon Macs. No Homebrew needed.
+
+1. **Install Python:** go to [python.org/downloads](https://www.python.org/downloads/), click the yellow **Download Python** button, open the downloaded file and click through the installer.
+2. **Get the app:** on the [repo page](https://github.com/kingbuck11/Video-downloader), click the green **Code** button → **Download ZIP**. Open the ZIP in Finder and move the `Video-downloader-main` folder somewhere permanent, such as your home folder.
+3. **Double-click `start.command`** in that folder. The first run takes a few minutes: it installs yt-dlp, ffmpeg (combines HD video with its sound) and deno (needed for YouTube) inside the app's folder only. Then the app opens in your browser.
+
+**Updating the app later:** download the ZIP again and replace the folder. Your settings and history are kept, because they're stored outside it.
 
 If macOS says `start.command` can't be opened, right-click it, choose **Open**, then **Open** again. You only need to do this once.
 
@@ -93,4 +92,4 @@ DRM-protected video (Netflix, Disney+, purchased movies and similar) can't be do
 | `vdl/server.py` | Flask API, restricted to this Mac and to the app's own page |
 | `vdl/settings.py` | Settings and history JSON files |
 | `static/` | The app's page (HTML, CSS, JS, no build step) |
-| `start.command` | Double-click launcher: sets up `.venv`, checks ffmpeg and deno |
+| `start.command` | Double-click launcher: finds Python 3.11+, sets up `.venv` with yt-dlp, ffmpeg and deno |

@@ -238,15 +238,15 @@ function renderNotices(state) {
   const notes = [];
   if (!state.ffmpeg) {
     notes.push(el("div", { class: "notice" },
-      el("strong", {}, "ffmpeg isn't installed. "),
-      "Without it most sites only offer lower-quality files and audio can't be combined with high-res video. In Terminal, run ",
-      el("code", {}, "brew install ffmpeg"), " then restart the app."));
+      el("strong", {}, "ffmpeg is missing. "),
+      "Without it most sites only offer lower-quality files. Quit the app and double-click ",
+      el("code", {}, "start.command"), " again to finish setup."));
   }
   if (!state.deno) {
     notes.push(el("div", { class: "notice" },
-      el("strong", {}, "deno isn't installed. "),
-      "YouTube downloads need it (other sites are fine). In Terminal, run ",
-      el("code", {}, "brew install deno"), " then restart the app."));
+      el("strong", {}, "deno is missing. "),
+      "YouTube downloads need it (other sites are fine). Quit the app and double-click ",
+      el("code", {}, "start.command"), " again to finish setup."));
   }
   if (!state.clipboard_available) {
     notes.push(el("div", { class: "notice" }, "Clipboard watching only works on a Mac. Paste links into the box below instead."));

@@ -1,2 +1,3 @@
-yt-dlp[default]
+yt-dlp[default,deno]
+imageio-ffmpeg
 flask>=3.0

@@ -11,8 +11,8 @@ import urllib.request
 
 PORT = 8737
 
-if sys.version_info < (3, 10):
-    sys.exit("Video Downloader needs Python 3.10 or newer. Install it with:  brew install python")
+if sys.version_info < (3, 11):
+    sys.exit("Video Downloader needs Python 3.11 or newer. Get the macOS installer from https://www.python.org/downloads/")
 
 try:
     from vdl.server import API_HEADER, create_app, open_in_browser
