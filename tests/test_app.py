@@ -282,3 +282,12 @@ def test_show_endpoint_uses_window_hook(client):
     client.application.config["show_window"] = lambda: shown.append(True)
     assert client.post("/api/show", headers=H).status_code == 200
     assert shown == [True]
+
+
+def test_open_link_only_known_pages(client, monkeypatch):
+    from vdl import server
+    opened = []
+    monkeypatch.setattr(server, "open_url", lambda url: opened.append(url))
+    assert client.post("/api/open-link", json={"which": "supported_sites"}, headers=H).status_code == 200
+    assert opened == [server.LINKS["supported_sites"]]
+    assert client.post("/api/open-link", json={"which": "https://evil.example"}, headers=H).status_code == 400

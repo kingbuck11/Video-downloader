@@ -152,6 +152,7 @@ class Desktop:
         menu.addItem_(NSMenuItem.separatorItem())
         self.watch_item = add("Watch Clipboard", "toggleWatch:")
         add("Open Downloads Folder", "openFolder:")
+        add("Supported Sites…", "supportedSites:")
         menu.addItem_(NSMenuItem.separatorItem())
         add(f"Quit {APP_NAME}", "quit:", "q")
         menu.setDelegate_(target)           # refresh the checkmark each time it opens
@@ -199,6 +200,10 @@ class Desktop:
         os.makedirs(folder, exist_ok=True)
         subprocess.Popen(["open", folder])
 
+    def supported_sites(self):
+        from .server import LINKS, open_url
+        open_url(LINKS["supported_sites"])
+
     def quit(self):
         os._exit(0)
 
@@ -236,6 +241,9 @@ def _menu_target_class():
 
             def openFolder_(self, sender):
                 _desktop.open_folder()
+
+            def supportedSites_(self, sender):
+                _desktop.supported_sites()
 
             def quit_(self, sender):
                 _desktop.quit()

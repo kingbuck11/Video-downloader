@@ -15,6 +15,11 @@ from .settings import Store
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 API_HEADER = "X-Video-Downloader"
 
+# The only outside pages the app opens (in the default browser, not the app window)
+LINKS = {
+    "supported_sites": "https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md",
+}
+
 
 def create_app(store=None, port=8737, start_watcher=True, show_window=None):
     app = Flask(__name__, static_folder=None)
@@ -142,6 +147,15 @@ def create_app(store=None, port=8737, start_watcher=True, show_window=None):
         reveal_in_finder(target, select=path is not None)
         return jsonify(ok=True)
 
+    @app.post("/api/open-link")
+    def open_link():
+        """Open one of the app's known help pages in the default browser."""
+        url = LINKS.get((request.get_json(force=True) or {}).get("which"))
+        if not url:
+            return jsonify(error="Unknown link."), 400
+        open_url(url)
+        return jsonify(ok=True)
+
     @app.post("/api/choose-folder")
     def choose_folder():
         folder = choose_folder_dialog(store.settings["save_dir"])
@@ -194,6 +208,14 @@ def is_mac():
 def open_in_browser(port):
     import webbrowser
     webbrowser.open(f"http://127.0.0.1:{port}/")
+
+
+def open_url(url):
+    if is_mac():
+        subprocess.Popen(["open", url])
+    else:
+        import webbrowser
+        webbrowser.open(url)
 
 
 def reveal_in_finder(path, select=True):

@@ -214,3 +214,5 @@ body.dragging .drop-overlay { display: grid; }
 .size-note:empty { display: none; }
 .size-note { color: var(--accent); }
 .prompt .err { color: var(--err); }
+
+.check small a, .preview a { color: var(--accent); }

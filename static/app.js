@@ -74,7 +74,9 @@ async function lookUp(url, pendingId, known) {
   if (info.error) {
     preview.className = "preview error";
     preview.replaceChildren(el("div", { class: "info" }, el("div", { class: "title" }, info.error),
-      el("div", { class: "sub" }, url)));
+      el("div", { class: "sub" }, url),
+      /not be supported/.test(info.error)
+        ? el("div", { class: "sub" }, el("a", { href: "#", "data-link": "supported_sites" }, "Check the supported sites list")) : null));
     return;
   }
   renderPreview(info, pendingId);
@@ -377,6 +379,16 @@ $("#updateYtdlp").addEventListener("click", async () => {
         : "Update failed: " + s.update.output.split("\n").filter(Boolean).slice(-2).join(" ");
     }
   }, 1000);
+});
+
+/* ------------------------------------------------------------ outside links */
+
+// Help pages open in the default browser, never inside the app window.
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("[data-link]");
+  if (!link) return;
+  e.preventDefault();
+  api("/api/open-link", { which: link.dataset.link });
 });
 
 /* ------------------------------------------------------------ header buttons */

@@ -17,6 +17,7 @@
     <span class="watch-pill" id="watchPill" title="Copy a video link in any browser and you'll be asked whether to download it">Watching clipboard</span>
   </div>
   <nav>
+    <button class="ghost" data-link="supported_sites" title="yt-dlp's list of sites it can download from (opens in your browser)">Supported sites</button>
     <button class="ghost" id="openFolder">Open folder</button>
     <button class="ghost" id="openSettings">Settings</button>
     <button class="ghost" id="quitApp" title="Stop the app">Quit</button>
@@ -92,10 +93,10 @@
       <span>Watch the clipboard<small>When you copy a video link in any browser, offer to download it.</small></span></label>
 
     <label class="check"><input type="checkbox" name="native_prompt">
-      <span>Pop-up prompt<small>Show a Mac dialog even when this tab isn't in front.</small></span></label>
+      <span>Pop-up prompt<small>Show a Mac dialog even when the app window isn't in front.</small></span></label>
 
     <label class="check"><input type="checkbox" name="prompt_all_links">
-      <span>Ask about every copied link<small>Normally only links from sites yt-dlp specifically supports.</small></span></label>
+      <span>Ask about every copied link<small>Normally only links from sites yt-dlp specifically supports (<a href="#" data-link="supported_sites">see the list</a>).</small></span></label>
 
     <label class="check"><input type="checkbox" name="keep_history">
       <span>Keep download history<small>Stored only on this Mac. Turning it off erases it.</small></span></label>

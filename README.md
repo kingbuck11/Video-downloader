@@ -21,6 +21,7 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 ## Known issues and next steps
 
 - **Nov 1 fix:** the first Mac launch crashed. Setup couldn't install pywebview 6 because its helper `proxy_tools` only exists as source code; the fallback then quietly installed an old pywebview without the `events` API. Now setup allows that one pure-Python source package, requires pywebview 6+, and checks the essentials before finishing. If the window still can't open, the app falls back to a browser tab, and any crash shows an error message with **Show Log** instead of vanishing. Opening the app again during setup no longer starts a second setup.
+- **Nov 1: Supported sites link** (yt-dlp's official list) in the app header, in Settings next to "Ask about every copied link", in the "site may not be supported" error, and in the ⬇ menu-bar menu. It opens in the default browser, never inside the app window; the server only opens pages from a fixed list.
 - **First run of the new app on the Mac:** check the setup message, the window, the menu-bar icon, closing and reopening (from the menu bar and by double-clicking the app), Cmd+Q, and the size display on real sites. If something fails, the details are in `~/Library/Logs/Video Downloader.log`; `start.command` runs the same thing with messages shown in Terminal.
 - While the app runs, the Dock may label it "Python" in places (the app is run by Python); the menu bar and icon say Video Downloader.
 - The same no-Terminal approach (native window + menu-bar icon, self-contained `.app`) could be applied to the owner's other local apps, like the Video Organizer.
@@ -68,7 +69,7 @@ Works on Intel and Apple Silicon Macs. No Homebrew needed.
 - Videos save to `~/Downloads/Videos` unless you choose another folder in **Settings**.
 - **Closing the window doesn't quit:** the app keeps watching for copied links. Use the **⬇ icon in the menu bar** to show the window again, pause clipboard watching, or quit. Cmd+Q also quits.
 
-The pop-up only appears for links from sites yt-dlp specifically supports (the [supported sites list](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)). You can switch it to ask about every link in Settings, or paste any link into the app to try it.
+The pop-up only appears for links from sites yt-dlp specifically supports (the [supported sites list](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), also linked from the app's header and menu-bar icon). You can switch it to ask about every link in Settings, or paste any link into the app to try it.
 
 ## If something goes wrong
 
