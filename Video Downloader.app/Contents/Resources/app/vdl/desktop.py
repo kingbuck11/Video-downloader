@@ -19,6 +19,10 @@ ICON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 def available():
     """True if the native window can be used (macOS with pywebview installed)."""
     try:
+        from importlib.metadata import version
+        if int(version("pywebview").split(".")[0]) < 6:
+            log.warning("pywebview %s is too old for the app window", version("pywebview"))
+            return False
         import webview  # noqa: F401
         import AppKit  # noqa: F401
         return True

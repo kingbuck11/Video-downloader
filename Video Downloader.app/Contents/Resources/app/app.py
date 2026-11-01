@@ -63,8 +63,14 @@ def main():
         shell = desktop.Desktop(URL, app.config["store"])
         app.config["show_window"] = shell.show
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        shell.run()                     # blocks until the app quits
-        return
+        try:
+            shell.run()                 # blocks until the app quits
+            return
+        except Exception:  # noqa: BLE001 - never just vanish: fall back to a browser tab
+            logging.exception("The app window couldn't open; using a browser tab instead")
+            app.config["show_window"] = None
+            open_in_browser(PORT)
+            threading.Event().wait()    # keep serving until Quit in the page
 
     print("Copy a video link in any browser, or paste it into the app. Press Ctrl+C to quit.", flush=True)
     if "--no-browser" not in sys.argv:

@@ -46,16 +46,20 @@ if ! venv_ok; then
   "$PY" -m venv "$VENV" || exit 3
 fi
 
-PIP=("$VENV/bin/python" -m pip install --disable-pip-version-check --quiet --upgrade --only-binary=:all:)
+# Ready-made packages only (never compile anything: that would need Apple's
+# developer tools), except small pure-Python packages that are only published
+# as source. Those install without any compiler.
+PURE_PYTHON_SOURCE="proxy_tools"
+PIP=("$VENV/bin/python" -m pip install --disable-pip-version-check --quiet --upgrade
+     --only-binary=:all: --no-binary="$PURE_PYTHON_SOURCE")
 echo "Installing yt-dlp, ffmpeg, deno and the app window (a few minutes the first time)…"
 "$VENV/bin/python" -m pip install --disable-pip-version-check --quiet --upgrade pip
 
-# Ready-made packages only: never compile anything (that would need Apple's
-# developer tools). If a brand-new Python lacks a ready-made build of an
-# optional yt-dlp extra (brotli, websockets…), install everything else.
+# If a brand-new Python lacks a ready-made build of an optional yt-dlp extra
+# (brotli, websockets…), install everything else.
 if ! "${PIP[@]}" -r "$HERE/requirements.txt"; then
   echo "Some optional extras aren't available for this Python yet; installing the essentials…"
-  "${PIP[@]}" "yt-dlp[deno]" imageio-ffmpeg "flask>=3.0" pywebview || exit 3
+  "${PIP[@]}" "yt-dlp[deno]" imageio-ffmpeg "flask>=3.0" "pywebview>=6.0" || exit 3
   for pkg in $("$VENV/bin/python" -c '
 import importlib.metadata as m
 for r in m.requires("yt-dlp") or []:
@@ -63,6 +67,22 @@ for r in m.requires("yt-dlp") or []:
         print(r.split(";")[0].strip().replace(" ", ""))'); do
     "${PIP[@]}" "$pkg" 2>/dev/null || echo "  (skipped optional $pkg)"
   done
+fi
+
+# make sure the essentials really work before calling setup done
+if ! "$VENV/bin/python" - <<'PY'
+import sys
+import flask, yt_dlp, imageio_ffmpeg  # noqa: F401
+from importlib.metadata import version
+major = int(version("pywebview").split(".")[0])
+if major < 6:
+    sys.exit(f"pywebview {version('pywebview')} is too old (need 6 or newer)")
+import webview  # noqa: F401
+print("Checked: yt-dlp", version("yt-dlp"), "| pywebview", version("pywebview"))
+PY
+then
+  echo "Setup check failed."
+  exit 3
 fi
 
 cp "$HERE/requirements.txt" "$STAMP"

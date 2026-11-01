@@ -20,6 +20,7 @@ A small, private Mac app for saving videos from web pages. It's a friendly front
 
 ## Known issues and next steps
 
+- **Nov 1 fix:** the first Mac launch crashed. Setup couldn't install pywebview 6 because its helper `proxy_tools` only exists as source code; the fallback then quietly installed an old pywebview without the `events` API. Now setup allows that one pure-Python source package, requires pywebview 6+, and checks the essentials before finishing. If the window still can't open, the app falls back to a browser tab, and any crash shows an error message with **Show Log** instead of vanishing. Opening the app again during setup no longer starts a second setup.
 - **First run of the new app on the Mac:** check the setup message, the window, the menu-bar icon, closing and reopening (from the menu bar and by double-clicking the app), Cmd+Q, and the size display on real sites. If something fails, the details are in `~/Library/Logs/Video Downloader.log`; `start.command` runs the same thing with messages shown in Terminal.
 - While the app runs, the Dock may label it "Python" in places (the app is run by Python); the menu bar and icon say Video Downloader.
 - The same no-Terminal approach (native window + menu-bar icon, self-contained `.app`) could be applied to the owner's other local apps, like the Video Organizer.
