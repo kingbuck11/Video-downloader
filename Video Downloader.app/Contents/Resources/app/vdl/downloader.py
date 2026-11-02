@@ -2,6 +2,7 @@
 import copy
 import os
 import queue
+import re
 import shutil
 import sys
 import sysconfig
@@ -189,6 +190,11 @@ def fetch_info(url, settings=None):
         raw = ydl.extract_info(url, download=False)
     info = ydl.sanitize_info(raw)
 
+    if info.get("_type") == "playlist" and info.get("extractor_key") == "Generic":
+        # a page yt-dlp doesn't know, with several videos on it (often ads,
+        # previews or related clips next to the one you want): let the user pick
+        return _page_videos(url, settings or {})
+
     if info.get("_type") == "playlist":
         entries = info.get("entries") or []
         return {
@@ -216,6 +222,84 @@ def fetch_info(url, settings=None):
     }
 
 
+MAX_PAGE_VIDEOS = 15
+SHORT_CLIP_SECONDS = 60
+
+
+def _page_videos(url, settings):
+    """Every video found on an unsupported page, with length and size, the
+    likely main video marked and short clips (probably ads) flagged."""
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+            "playlistend": MAX_PAGE_VIDEOS, **js_runtime_options()}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        page = ydl.extract_info(url, download=False)
+    entries = [e for e in (page.get("entries") or []) if e]
+
+    videos, seen_urls = [], set()
+    for pos, entry in enumerate(entries, 1):
+        media = entry.get("url") or next((f.get("url") for f in entry.get("formats") or []), None)
+        if media in seen_urls:
+            continue                     # same video embedded twice
+        seen_urls.add(media)
+        cache = {}
+        try:
+            options = estimate_options(entry, settings, cache) if entry.get("formats") else []
+        except Exception:  # noqa: BLE001
+            options = []
+        duration = entry.get("duration") or max(
+            (c.get("duration") or 0 for c in cache.values()), default=0) or None
+        best = next((o for o in options if o["quality"] == "best"), None)
+        height = (best or {}).get("height") or max(
+            (c.get("height") or 0 for c in cache.values()), default=0) or None
+        if best and not best.get("height") and height:
+            best["height"] = height
+        videos.append({
+            "item": entry.get("playlist_index") or pos,
+            "title": entry.get("title") or f"Video {pos}",
+            # a real site name (e.g. an embedded YouTube video), not yt-dlp's internal fallbacks
+            "site": None if entry.get("extractor_key") in ("Generic", "HTML5MediaEmbed") else entry.get("extractor_key"),
+            "duration": duration,
+            "thumbnail": _thumb(entry),
+            "height": height,
+            "options": options,
+            "bytes": (best or {}).get("bytes"),
+        })
+
+    main = _likely_main(videos)
+    for v in videos:
+        v["main"] = v is main
+        v["short"] = v is not main and _looks_like_extra(v, main)
+    page_title = page.get("title") or (main or {}).get("title") or "Videos on this page"
+    return {
+        "kind": "multi",
+        "title": page_title,
+        "site": "Generic",
+        "url": url,
+        "count": len(videos),
+        "videos": videos,
+        "thumbnail": (main or {}).get("thumbnail"),
+    }
+
+
+def _likely_main(videos):
+    """The main video is usually by far the longest (or, without lengths, the biggest)."""
+    if not videos:
+        return None
+    if any(v["duration"] for v in videos):
+        return max(videos, key=lambda v: v["duration"] or 0)
+    if any(v["bytes"] for v in videos):
+        return max(videos, key=lambda v: v["bytes"] or 0)
+    return videos[0]
+
+
+def _looks_like_extra(video, main):
+    if video["duration"]:
+        return video["duration"] < SHORT_CLIP_SECONDS
+    if video["bytes"] and main and main.get("bytes"):
+        return video["bytes"] < main["bytes"] * 0.1
+    return False
+
+
 def _format_size(fmt, duration):
     """Bytes for one format: exact if the site says, else estimated from bitrate."""
     if fmt.get("filesize"):
@@ -227,27 +311,120 @@ def _format_size(fmt, duration):
     return None, False
 
 
-def _ask_server_for_size(fmt, cache):
-    """Direct video files often don't list a size, but the server will say how
-    big the file is if asked (a HEAD request: nothing is downloaded)."""
+def _open(url, headers=None, method="GET", timeout=8):
+    from yt_dlp.networking import Request
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": timeout}) as ydl:
+        return ydl.urlopen(Request(url, method=method, headers=headers or {}))
+
+
+def _content_length(url, headers=None):
+    """Size of a file on the server without downloading it: a HEAD request,
+    or (for servers that refuse HEAD) a request for just its first byte."""
+    try:
+        resp = _open(url, headers, "HEAD")
+        length = resp.headers.get("Content-Length")
+        resp.close()
+        if length and int(length) > 0:
+            return int(length)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        resp = _open(url, dict(headers or {}, Range="bytes=0-0"))
+        total = (resp.headers.get("Content-Range") or "").rpartition("/")[2]
+        resp.close()
+        if total.isdigit():
+            return int(total)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _absolute(url):
+    return "https:" + url if url.startswith("//") else url
+
+
+def probe_hls(url, headers=None):
+    """Chunked streams (HLS) come as a playlist of short pieces. Read the
+    playlist to get the total length, then size = bitrate x length, or the
+    size of one piece scaled up to the whole video. Downloads only the small
+    playlist text (and asks the size of one piece)."""
+    from urllib.parse import urljoin
+    url = _absolute(url)
+    try:
+        resp = _open(url, headers)
+        text = resp.read(2_000_000).decode("utf-8", "replace")
+        resp.close()
+    except Exception:  # noqa: BLE001
+        return {}
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    result = {}
+    if any(ln.startswith("#EXT-X-STREAM-INF") for ln in lines):
+        # master playlist: pick the highest-bandwidth variant
+        best = None
+        for k, ln in enumerate(lines):
+            if ln.startswith("#EXT-X-STREAM-INF") and k + 1 < len(lines):
+                bw = re.search(r"[^-]BANDWIDTH=(\d+)", ln) or re.search(r"BANDWIDTH=(\d+)", ln)
+                res = re.search(r"RESOLUTION=\d+x(\d+)", ln)
+                cand = (int(bw.group(1)) if bw else 0, int(res.group(1)) if res else None, urljoin(url, lines[k + 1]))
+                if best is None or cand[0] > best[0]:
+                    best = cand
+        if not best:
+            return {}
+        inner = probe_hls(best[2], headers)
+        if best[1]:
+            inner["height"] = best[1]
+        if best[0] and inner.get("duration") and not inner.get("bytes"):
+            inner["bytes"] = int(best[0] / 8 * inner["duration"])
+        return inner
+
+    durations, ranges, first_seg, first_len = [], 0, None, None
+    pending = None
+    for ln in lines:
+        if ln.startswith("#EXTINF:"):
+            try:
+                pending = float(ln[8:].split(",")[0])
+            except ValueError:
+                pending = None
+        elif ln.startswith("#EXT-X-BYTERANGE:"):
+            try:
+                ranges += int(ln.split(":")[1].split("@")[0])
+            except ValueError:
+                pass
+        elif not ln.startswith("#") and pending is not None:
+            durations.append(pending)
+            if first_seg is None:
+                first_seg, first_len = urljoin(url, ln), pending
+            pending = None
+    if not durations:
+        return {}
+    result["duration"] = sum(durations)
+    if ranges:
+        result["bytes"] = ranges
+    elif first_seg and first_len:
+        piece = _content_length(first_seg, headers)
+        if piece:
+            result["bytes"] = int(piece / first_len * result["duration"])
+    return result
+
+
+def _probe(fmt, cache):
+    """Last resort for a format with no size information: ask the server."""
     url = fmt.get("url")
-    if not url or fmt.get("protocol") not in ("http", "https", None) or ".m3u8" in url:
-        return None
+    if not url:
+        return {}
     if url not in cache:
-        cache[url] = None
-        try:
-            from yt_dlp.networking import Request
-            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 8}) as ydl:
-                resp = ydl.urlopen(Request(url, method="HEAD", headers=fmt.get("http_headers") or {}))
-                length = resp.headers.get("Content-Length")
-                resp.close()
-            cache[url] = int(length) if length and int(length) > 0 else None
-        except Exception:  # noqa: BLE001 - size stays unknown
-            pass
+        protocol = fmt.get("protocol") or ""
+        if protocol.startswith("m3u8") or ".m3u8" in url:
+            cache[url] = probe_hls(url, fmt.get("http_headers"))
+        elif protocol in ("http", "https", ""):
+            size = _content_length(_absolute(url), fmt.get("http_headers"))
+            cache[url] = {"bytes": size, "exact": True} if size else {}
+        else:
+            cache[url] = {}
     return cache[url]
 
 
-def estimate_options(processed, settings):
+def estimate_options(processed, settings, probe_cache=None):
     """For each quality choice, ask yt-dlp which format(s) it would really pick
     (same rules as the download) and add up their sizes. No network needed:
     it reuses the format list already fetched."""
@@ -255,7 +432,8 @@ def estimate_options(processed, settings):
     has_ffmpeg = bool(ffmpeg_path())
     duration = processed.get("duration")
     by_id = {f.get("format_id"): f for f in processed.get("formats") or []}
-    results, seen, head_cache = [], set(), {}
+    results, seen = [], set()
+    head_cache = probe_cache if probe_cache is not None else {}
     for quality in QUALITIES:
         opts = build_options(dict(settings, quality=quality), has_ffmpeg=has_ffmpeg)
         pick = {k: opts[k] for k in ("format", "format_sort") if k in opts}
@@ -276,7 +454,13 @@ def estimate_options(processed, settings):
         for f in fmts:
             size, is_exact = _format_size(f, duration)
             if size is None:
-                size, is_exact = _ask_server_for_size(f, head_cache), True
+                found = _probe(f, head_cache)
+                if found.get("duration") and not duration:
+                    duration = found["duration"]
+                if found.get("bytes"):
+                    size, is_exact = found["bytes"], bool(found.get("exact"))
+                elif f.get("tbr") and found.get("duration"):
+                    size, is_exact = int(f["tbr"] * 1000 / 8 * found["duration"]), False
             if size is None:
                 total = None
                 break
@@ -305,12 +489,13 @@ def _thumb(info):
 # ---------------------------------------------------------------- jobs
 
 class Job:
-    def __init__(self, url, title=None, quality=None, playlist=False):
+    def __init__(self, url, title=None, quality=None, playlist=False, item=None):
         self.id = uuid.uuid4().hex[:10]
         self.url = url
         self.title = title or url
         self.quality = quality
         self.playlist = playlist
+        self.item = item          # one video picked from a page with several
         self.status = "queued"   # queued | downloading | processing | done | error | cancelled
         self.percent = 0.0
         self.speed = None
@@ -328,7 +513,7 @@ class Job:
 
     def to_dict(self):
         return {k: getattr(self, k) for k in (
-            "id", "url", "title", "quality", "playlist", "status", "percent", "speed", "eta", "total_bytes",
+            "id", "url", "title", "quality", "playlist", "item", "status", "percent", "speed", "eta", "total_bytes",
             "detail", "filepath", "error", "site", "created")} | {"file_count": len(self.files)}
 
 
@@ -350,8 +535,8 @@ class DownloadManager:
             self._workers.append(t)
 
     # public ---------------------------------------------------------------
-    def add(self, url, title=None, quality=None, playlist=False):
-        job = Job(url, title, quality or self.store.settings["quality"], playlist)
+    def add(self, url, title=None, quality=None, playlist=False, item=None):
+        job = Job(url, title, quality or self.store.settings["quality"], playlist, item)
         with self._lock:
             self.jobs[job.id] = job
             self._order.append(job.id)
@@ -376,7 +561,7 @@ class DownloadManager:
         job = self.jobs.get(job_id)
         if not job or job.status not in ("error", "cancelled"):
             return None
-        return self.add(job.url, job.title, job.quality, job.playlist)
+        return self.add(job.url, job.title, job.quality, job.playlist, job.item)
 
     def clear_finished(self):
         with self._lock:
@@ -405,6 +590,14 @@ class DownloadManager:
         os.makedirs(settings["save_dir"], exist_ok=True)
         ffmpeg = ffmpeg_path()
         opts = build_options(settings, has_ffmpeg=bool(ffmpeg), allow_playlist=job.playlist)
+        if job.item:
+            # just the chosen video from the page, saved like a single video,
+            # named after the page rather than yt-dlp's "Title (3)"
+            opts.update(noplaylist=False, playlist_items=str(job.item))
+            if job.title and job.title != job.url:
+                from yt_dlp.utils import sanitize_filename
+                name = sanitize_filename(job.title)[:180].replace("%", "%%")
+                opts["outtmpl"] = name + ".%(ext)s"
         if ffmpeg:
             opts["ffmpeg_location"] = ffmpeg
         opts.update(js_runtime_options())
@@ -426,6 +619,8 @@ class DownloadManager:
                         job.files.append(path)
             if not job.files and job.playlist:
                 raise DownloadError("None of the playlist's videos could be downloaded.")
+            if not job.files and job.item:
+                raise DownloadError("That video is no longer on the page. Look the link up again.")
             job.filepath = job.files[0] if job.files else None
             sizes = [os.path.getsize(f) for f in job.files if os.path.exists(f)]
             if sizes:

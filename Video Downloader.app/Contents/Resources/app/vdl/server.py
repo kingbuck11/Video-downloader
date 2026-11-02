@@ -99,7 +99,9 @@ def create_app(store=None, port=8737, start_watcher=True, show_window=None):
             quality = None
         if body.get("pending_id"):
             watcher.dismiss(body["pending_id"])
-        job = manager.add(url, body.get("title"), quality, bool(body.get("playlist")))
+        item = body.get("item")
+        item = int(item) if isinstance(item, int) or (isinstance(item, str) and item.isdigit()) else None
+        job = manager.add(url, body.get("title"), quality, bool(body.get("playlist")), item)
         return jsonify(job.to_dict())
 
     @app.post("/api/jobs/<job_id>/cancel")

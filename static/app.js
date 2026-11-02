@@ -109,7 +109,72 @@ function defaultChoice(info, values) {
   return "best";
 }
 
+function renderPagePicker(info, pendingId) {
+  // An unsupported page with several videos (ads, previews…): pick one.
+  preview.className = "preview picker";
+  const videos = info.videos || [];
+  const extras = videos.filter((v) => v.short);
+  let showExtras = false;
+  let chosen = videos.find((v) => v.main) || videos[0];
+
+  const list = el("ul", { class: "pick-list" });
+  const select = el("select", { "aria-label": "Quality" });
+  const go = el("button", { class: "primary" }, "Download");
+
+  const fillQuality = () => {
+    select.replaceChildren();
+    const choices = qualityOptions(chosen || {});
+    for (const [v, label] of choices) select.append(el("option", { value: v }, label));
+    select.value = defaultChoice(chosen || {}, choices.map((c) => c[0]));
+    select.hidden = choices.length < 2;
+  };
+
+  const renderList = () => {
+    const shown = videos.filter((v) => showExtras || !v.short || v === chosen);
+    list.replaceChildren(...shown.map((v) => {
+      const thumb = el("div", { class: "pick-thumb" });
+      if (v.thumbnail) thumb.style.backgroundImage = `url("${v.thumbnail.replace(/"/g, "%22")}")`;
+      const facts = [v.duration ? fmt.duration(v.duration) : "length unknown",
+        v.height ? `${v.height}p` : null, v.bytes ? fmt.size({ bytes: v.bytes, exact: false }) : "size unknown",
+        v.site && v.site !== "Generic" ? v.site : null].filter(Boolean).join(" · ");
+      return el("li", { class: "pick" + (v === chosen ? " chosen" : ""), onclick: () => { chosen = v; renderList(); fillQuality(); } },
+        el("input", { type: "radio", name: "pick", checked: v === chosen, "aria-label": v.title }),
+        thumb,
+        el("div", { class: "pick-text" },
+          el("div", { class: "pick-title" }, v.main ? info.title : v.title,
+            v.main ? el("span", { class: "badge" }, "Likely the main video") : null,
+            v.short ? el("span", { class: "badge muted-badge" }, "Short clip, probably an ad or preview") : null),
+          el("div", { class: "sub" }, facts)));
+    }));
+    toggle.hidden = extras.length === 0;
+    toggle.textContent = showExtras ? `Hide short clips` : `Show ${extras.length} short clip${extras.length === 1 ? "" : "s"}`;
+  };
+  const toggle = el("button", { class: "link", onclick: () => { showExtras = !showExtras; renderList(); } });
+
+  go.addEventListener("click", async () => {
+    if (!chosen) return;
+    const job = await api("/api/download", {
+      url: info.url, item: chosen.item, quality: select.value, pending_id: pendingId,
+      title: chosen.main ? info.title : chosen.title,
+    });
+    if (job.error) return alert(job.error);
+    preview.hidden = true;
+    $("#urlInput").value = "";
+    poll();
+  });
+
+  renderList();
+  fillQuality();
+  preview.replaceChildren(el("div", { class: "info" },
+    el("div", { class: "title" }, info.title),
+    el("div", { class: "sub" }, `${videos.length} videos found on this page. Pick the one you want.`),
+    list, toggle,
+    el("div", { class: "go" }, select, go,
+      el("button", { class: "ghost", onclick: () => { preview.hidden = true; } }, "Close"))));
+}
+
 function renderPreview(info, pendingId) {
+  if (info.kind === "multi") return renderPagePicker(info, pendingId);
   preview.className = "preview";
   const thumb = el("div", { class: "thumb" });
   if (info.thumbnail) thumb.style.backgroundImage = `url("${info.thumbnail.replace(/"/g, "%22")}")`;
@@ -188,6 +253,11 @@ function pendingSummary(p) {
   if (p.state === "error") return [el("span", { class: "err" }, p.error || "No downloadable video found.")];
   const info = p.info || {};
   if (info.kind === "playlist") return [`${info.title} · playlist of ${info.count}`];
+  if (info.kind === "multi") {
+    const main = (info.videos || []).find((v) => v.main);
+    return [el("strong", {}, info.title), ` · ${info.count} videos on the page`,
+      main && main.duration ? ` · main ${fmt.duration(main.duration)}` : ""];
+  }
   return [el("strong", {}, info.title || p.url), info.duration ? ` · ${fmt.duration(info.duration)}` : ""];
 }
 
@@ -209,8 +279,8 @@ function renderPending(items, force = false) {
     if (ready) {
       actions.push(el("button", { class: "small", onclick: () => {
         handledPending.add(p.id); renderPending(items, true); lookUp(info.url || p.url, p.id, info);
-      } }, info.kind === "playlist" ? "Open" : "Choose quality"));
-      if (info.kind !== "playlist") actions.push(el("button", { class: "small primary", onclick: async () => {
+      } }, info.kind === "playlist" ? "Open" : info.kind === "multi" ? "Choose video" : "Choose quality"));
+      if (info.kind !== "playlist" && info.kind !== "multi") actions.push(el("button", { class: "small primary", onclick: async () => {
         handledPending.add(p.id); renderPending(items, true);
         await api("/api/download", { url: info.url || p.url, title: info.title, pending_id: p.id }); poll();
       } }, o && o.bytes ? `Download (${fmt.size(o)})` : "Download"));

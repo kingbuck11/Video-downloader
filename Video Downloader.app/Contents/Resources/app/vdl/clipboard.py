@@ -14,12 +14,12 @@ from .downloader import looks_like_url, site_for
 POLL_SECONDS = 1.0
 QUALITY_NAMES = {"best": "best quality"}
 
-# argv: 1 message, 2 download-button label
+# argv: 1 message, 2 download-button label, 3 middle-button label
 _ASK_SCRIPT = [
     "on run argv",
     'set dl to item 2 of argv',
     'set r to display dialog (item 1 of argv) with title "Video Downloader"'
-    ' buttons {"Ignore", "Choose Quality…", dl} default button dl'
+    ' buttons {"Ignore", (item 3 of argv), dl} default button dl'
     ' cancel button "Ignore" giving up after 45 with icon note',
     'if gave up of r then return "Ignore"',
     "set b to button returned of r",
@@ -67,6 +67,30 @@ def describe(info, quality):
             lines.append(f"Smallest: {small.get('height') or '?'}p, "
                          f"{downloader.format_bytes(small['bytes'], small['exact'])}")
     return "\n".join(lines), size
+
+
+def describe_page(info):
+    """Prompt for an unsupported page with several videos: offer the likely
+    main one, mention the short clips (probably ads) being skipped."""
+    videos = info.get("videos") or []
+    main = next((v for v in videos if v.get("main")), None)
+    extras = sum(1 for v in videos if v.get("short"))
+    lines = [info.get("title") or "Videos on this page", f"{len(videos)} videos found on this page.", ""]
+    if not main:
+        return "\n".join(lines + ["Choose Quality… to pick one."]), "Open App", None
+    facts = []
+    if main.get("duration"):
+        mins, secs = divmod(int(main["duration"]), 60)
+        facts.append(f"{mins // 60}:{mins % 60:02d}:{secs:02d}" if mins >= 60 else f"{mins}:{secs:02d}")
+    if main.get("height"):
+        facts.append(f"{main['height']}p")
+    size = downloader.format_bytes(main.get("bytes"), False)
+    facts.append(size)
+    lines.append("Main video: " + " · ".join(facts))
+    if extras:
+        lines.append(f"Skipping {extras} short clip{'s' if extras != 1 else ''} (probably ads or previews).")
+    label = f"Download Main ({size})" if main.get("bytes") else "Download Main"
+    return "\n".join(lines), label, main
 
 
 class ClipboardWatcher:
@@ -154,19 +178,26 @@ class ClipboardWatcher:
                 self.dismiss(item["id"])
                 return
             info = item["info"] or {}
-            if info.get("kind") == "playlist":
+            main = None
+            if info.get("kind") == "multi":
+                message, label, main = describe_page(info)
+            elif info.get("kind") == "playlist":
                 message = f"{info.get('title')}\n{info.get('count')} videos (playlist)\n\nChoose Quality… to download them."
                 label = "Open App"
             else:
                 message, size = describe(info, self.store.settings.get("quality", "best"))
                 label = f"Download ({size})" if size != "size unknown" else "Download"
-            answer = self._osascript(_ASK_SCRIPT, message, label)
+            middle = "Choose Video…" if info.get("kind") == "multi" else "Choose Quality…"
+            answer = self._osascript(_ASK_SCRIPT, message, label, middle)
         if answer is None or item not in self.pending:
             return                     # already handled from the app tab
-        if answer == "Download" and info.get("kind") != "playlist":
+        if answer == "Download" and main:
+            self.dismiss(item["id"])
+            self.manager.add(info.get("url") or item["url"], info.get("title"), item=main["item"])
+        elif answer == "Download" and info.get("kind") not in ("playlist", "multi"):
             self.dismiss(item["id"])
             self.manager.add(info.get("url") or item["url"], info.get("title"))
-        elif answer in ("Choose Quality…", "Download"):
+        elif answer in ("Choose Quality…", "Choose Video…", "Download"):
             self.open_app()            # stays pending: the app tab shows sizes per quality
         else:
             self.dismiss(item["id"])

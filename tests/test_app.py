@@ -291,3 +291,79 @@ def test_open_link_only_known_pages(client, monkeypatch):
     assert client.post("/api/open-link", json={"which": "supported_sites"}, headers=H).status_code == 200
     assert opened == [server.LINKS["supported_sites"]]
     assert client.post("/api/open-link", json={"which": "https://evil.example"}, headers=H).status_code == 400
+
+
+# ------------------------------------------------------------------ pages with several videos
+
+def _serve(directory):
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
+    handler.log_message = lambda *a: None
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
+def _ffmpeg(*args):
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", *args], check=True)
+
+
+@pytest.fixture
+def busy_page(tmp_path):
+    """An unsupported page: one 20 s HLS video between two 3 s 'ads'."""
+    site = tmp_path / "site"
+    (site / "hls").mkdir(parents=True)
+    _ffmpeg("-f", "lavfi", "-i", "testsrc=duration=20:size=640x360:rate=15", "-f", "lavfi", "-i", "sine=duration=20",
+            "-shortest", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-b:v", "400k", "-c:a", "aac",
+            "-f", "hls", "-hls_time", "4", "-hls_playlist_type", "vod", str(site / "hls" / "main.m3u8"))
+    for i in (1, 2):
+        _ffmpeg("-f", "lavfi", "-i", "testsrc2=duration=3:size=320x180:rate=15", "-pix_fmt", "yuv420p", "-an",
+                str(site / f"ad{i}.mp4"))
+    (site / "page.html").write_text(
+        '<html><head><title>Big Main Video - Example</title><meta property="og:title" content="Big Main Video"></head><body>'
+        '<video src="ad1.mp4" autoplay muted></video>'
+        '<video controls><source src="hls/main.m3u8" type="application/x-mpegURL"></video>'
+        '<video src="ad2.mp4" muted></video></body></html>')
+    httpd, base = _serve(site)
+    yield site, base + "/page.html"
+    httpd.shutdown()
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_page_with_several_videos_picks_main(busy_page, store):
+    site, url = busy_page
+    info = downloader.fetch_info(url, store.settings)
+    assert info["kind"] == "multi" and info["count"] == 3
+    main = [v for v in info["videos"] if v["main"]]
+    assert len(main) == 1 and abs(main[0]["duration"] - 20) < 1
+    assert sum(v["short"] for v in info["videos"]) == 2
+    actual = sum(p.stat().st_size for p in (site / "hls").glob("*.ts"))
+    assert abs(main[0]["bytes"] - actual) / actual < 0.25          # estimated from the chunk playlist
+
+    from vdl.clipboard import describe_page
+    text, label, picked = describe_page(info)
+    assert picked is main[0] and "Skipping 2 short clips" in text and label.startswith("Download Main (≈")
+
+    m = downloader.DownloadManager(store)
+    job = m.add(url, info["title"], item=main[0]["item"])
+    for _ in range(300):
+        if job.status in ("done", "error"):
+            break
+        time.sleep(0.1)
+    assert job.status == "done", job.error
+    assert os.path.basename(job.filepath) == "Big Main Video.mp4"   # just the one, named after the page
+
+
+def test_hls_master_playlist_uses_best_variant(tmp_path):
+    (tmp_path / "v720").mkdir()
+    (tmp_path / "master.m3u8").write_text(
+        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\nv360.m3u8\n"
+        "#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=2000000,BANDWIDTH=2400000,RESOLUTION=1280x720\nv720/index.m3u8\n")
+    (tmp_path / "v720" / "index.m3u8").write_text(
+        "#EXTM3U\n#EXT-X-TARGETDURATION:10\n" + "#EXTINF:10.0,\nseg.ts\n" * 6 + "#EXT-X-ENDLIST\n")
+    httpd, base = _serve(tmp_path)
+    try:
+        found = downloader.probe_hls(base + "/master.m3u8")
+    finally:
+        httpd.shutdown()
+    assert found["height"] == 720 and found["duration"] == 60
+    assert found["bytes"] == 2_400_000 // 8 * 60            # bandwidth x length (segment can't be sized)
